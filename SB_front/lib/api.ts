@@ -1,168 +1,137 @@
 /**
- * API Client для Study Buddy Backend
- * Все запросы идут на http://localhost:3001/api/trpc/
+ * API Client для Study Buddy Backend tRPC
+ * Бэк слушает /trpc/... БЕЗ /api/ префикса!
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
 
-interface TRPCRequest {
-  method: "query" | "mutation";
-  procedure: string;
-  input?: any;
-}
+async function callTRPC({
+  method,
+  procedure,
+  input,
+}: {
+  method: "query" | "mutation"
+  procedure: string
+  input?: unknown
+}) {
+  // ✅ tRPC требует обёртку { json: input }
+  const wrappedInput = input !== undefined ? { json: input } : undefined
 
-async function callTRPC(req: TRPCRequest) {
-  const { method, procedure, input } = req;
-  
-  // Формируем URL в зависимости от типа запроса
-  let url = `${API_URL}/api/trpc/${procedure}`;
-  
-  if (method === "query" && input) {
-    url += `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  let url = `${API_URL}/api/trpc/${procedure}`
+
+  if (method === "query" && wrappedInput !== undefined) {
+    url += `?input=${encodeURIComponent(JSON.stringify(wrappedInput))}`
   }
 
   const options: RequestInit = {
     method: method === "query" ? "GET" : "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include", // Для отправки cookies
-  };
-
-  if (method === "mutation" && input) {
-    options.body = JSON.stringify(input);
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
   }
 
-  const response = await fetch(url, options);
-  
+  if (method === "mutation" && wrappedInput !== undefined) {
+    options.body = JSON.stringify(wrappedInput)
+  }
+
+  const response = await fetch(url, options)
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || `API Error: ${response.status}`);
+    const error = await response.json().catch(() => ({}))
+    throw new Error(
+      error?.error?.message || `API Error: ${response.status}`
+    )
   }
 
-  const data = await response.json();
-  return data.result?.data;
+  const data = await response.json()
+  // ✅ tRPC возвращает { result: { data: { json: ... } } }
+  return data.result?.data?.json ?? data.result?.data ?? data
 }
 
-// ========== AUTH ENDPOINTS ==========
+
+// Остальной код без изменений
 export const authAPI = {
-  register: async (email: string, password: string, telegramUsername: string) => {
-    return callTRPC({
+  register: (email: string, password: string, telegramUsername?: string) =>
+    callTRPC({
       method: "mutation",
       procedure: "auth.register",
       input: { email, password, telegramUsername },
-    });
-  },
+    }),
 
-  login: async (email: string, password: string) => {
-    return callTRPC({
+  login: (email: string, password: string) =>
+    callTRPC({
       method: "mutation",
       procedure: "auth.login",
       input: { email, password },
-    });
-  },
+    }),
 
-  getMe: async () => {
-    return callTRPC({
-      method: "query",
-      procedure: "auth.me",
-    });
-  },
-};
+  logout: () =>
+    callTRPC({ method: "mutation", procedure: "auth.logout" }),
 
-// ========== PROFILE ENDPOINTS ==========
+  getMe: () =>
+    callTRPC({ method: "query", procedure: "auth.me" }),
+}
+
 export const profileAPI = {
-  getMyProfile: async () => {
-    return callTRPC({
-      method: "query",
-      procedure: "profiles.getMyProfile",
-    });
-  },
+  getMe: () =>
+    callTRPC({ method: "query", procedure: "profile.getMe" }),
 
-  updateAboutMe: async (data: any) => {
-    return callTRPC({
+  updateAboutMe: (data: any) =>
+    callTRPC({
       method: "mutation",
-      procedure: "profiles.updateAboutMe",
+      procedure: "profile.updateAboutMe",
       input: data,
-    });
-  },
+    }),
 
-  updatePartnerPreferences: async (data: any) => {
-    return callTRPC({
+  updatePartnerPreferences: (data: any) =>
+    callTRPC({
       method: "mutation",
-      procedure: "profiles.updatePartnerPreferences",
+      procedure: "profile.updatePartnerPreferences",
       input: data,
-    });
-  },
-};
+    }),
+}
 
-// ========== DISCOVER ENDPOINTS ==========
-export const discoverAPI = {
-  getCandidates: async (goalId?: string) => {
-    return callTRPC({
+export const matchingAPI = {
+  getCandidates: (params?: { limit?: number; offset?: number }) =>
+    callTRPC({
       method: "query",
-      procedure: "discover.getCandidates",
-      input: goalId ? { goalId } : undefined,
-    });
-  },
+      procedure: "matching.getCandidates",
+      input: params,
+    }),
 
-  getCandidate: async (candidateId: number) => {
-    return callTRPC({
+  getCandidate: (candidateId: number) =>
+    callTRPC({
       method: "query",
-      procedure: "discover.getCandidate",
+      procedure: "matching.getCandidate",
       input: { candidateId },
-    });
-  },
-};
+    }),
+}
 
-// ========== FAVORITES ENDPOINTS ==========
 export const favoritesAPI = {
-  like: async (candidateId: number, goalId: string) => {
-    return callTRPC({
+  like: (candidateId: number) =>
+    callTRPC({
       method: "mutation",
       procedure: "favorites.like",
-      input: { candidateId, goalId },
-    });
-  },
+      input: { candidateId },
+    }),
 
-  unlike: async (candidateId: number, goalId: string) => {
-    return callTRPC({
+  unlike: (candidateId: number) =>
+    callTRPC({
       method: "mutation",
       procedure: "favorites.unlike",
-      input: { candidateId, goalId },
-    });
-  },
+      input: { candidateId },
+    }),
 
-  getMyFavorites: async (goalId?: string) => {
-    return callTRPC({
-      method: "query",
-      procedure: "favorites.getMyFavorites",
-      input: goalId ? { goalId } : undefined,
-    });
-  },
+  getMyFavorites: () =>
+    callTRPC({ method: "query", procedure: "favorites.getMyFavorites" }),
 
-  getAdmirers: async (goalId?: string) => {
-    return callTRPC({
-      method: "query",
-      procedure: "favorites.getAdmirers",
-      input: goalId ? { goalId } : undefined,
-    });
-  },
-};
+  getAdmirers: () =>
+    callTRPC({ method: "query", procedure: "favorites.getAdmirers" }),
+}
 
-// ========== ADMIN ENDPOINTS ==========
 export const adminAPI = {
-  getAllUsers: async () => {
-    return callTRPC({
-      method: "query",
-      procedure: "admin.getAllUsers",
-    });
-  },
+  getAllUsers: () =>
+    callTRPC({ method: "query", procedure: "admin.getAllUsers" }),
 
-  getStats: async () => {
-    return callTRPC({
-      method: "query",
-      procedure: "admin.getStats",
-    });
-  },
-};
+  getStats: () =>
+    callTRPC({ method: "query", procedure: "admin.getStats" }),
+}

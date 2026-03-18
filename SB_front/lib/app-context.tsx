@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useState, useCallback } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
+import { authAPI, matchingAPI, favoritesAPI, profileAPI } from "./api"
 
 // ========== TYPES ==========
 export type AppScreen =
@@ -13,6 +14,7 @@ export type AppScreen =
   | "about-step3"
   | "about-congrats"
   | "about-goal"
+  | "new-goal"        
   | "about-congrats2"
   | "survey1"
   | "survey2"
@@ -26,6 +28,7 @@ export type AppScreen =
   | "likes"
   | "likes-candidates"
 
+
 export interface UserProfile {
   firstName: string
   lastName: string
@@ -37,7 +40,6 @@ export interface UserProfile {
   messenger: "telegram" | "vk"
   messengerHandle: string
   studyGoals: StudyGoal[]
-  // Survey 1 answers
   preferredTime: string[]
   motivation: string[]
   knowledgeLevel: string
@@ -46,7 +48,6 @@ export interface UserProfile {
   sociability: number
   friendliness: number
   stressResistance: number
-  // Survey 2 answers
   importantInStudy: string[]
   additionalGoals: string[]
   partnerLevel: string
@@ -73,78 +74,9 @@ export interface Candidate {
   goal: string
   goalDescription: string
   telegram: string
+  isFavorite?: boolean
 }
 
-// ========== MOCK DATA ==========
-export const mockCandidates: Candidate[] = [
-  {
-    id: 1,
-    name: "Катя Сафонова",
-    age: 18,
-    city: "Москва",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=500&fit=crop&crop=face",
-    compatibility: 87,
-    university: "ФКН ВШЭ",
-    course: "3 курс",
-    goal: "IELTS",
-    goalDescription: "Хочу подготовиться за 3 месяца, мне нужен напарник для тестов и спикинг клаба",
-    telegram: "@kateSafonova",
-  },
-  {
-    id: 2,
-    name: "Катя Семенова",
-    age: 19,
-    city: "Москва",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&h=500&fit=crop&crop=face",
-    compatibility: 84,
-    university: "МГУ",
-    course: "2 курс",
-    goal: "IELTS",
-    goalDescription: "Ищу партнера для подготовки к IELTS, writing и speaking",
-    telegram: "@kateSemenova",
-  },
-  {
-    id: 3,
-    name: "Женя Сафонова",
-    age: 18,
-    city: "Москва",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=500&fit=crop&crop=face",
-    compatibility: 79,
-    university: "МФТИ",
-    course: "1 курс",
-    goal: "IELTS",
-    goalDescription: "Нужен бадди для практики разговорного английского",
-    telegram: "@zhenyaSafonova",
-  },
-  {
-    id: 4,
-    name: "Женя Семенова",
-    age: 18,
-    city: "Москва",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=500&fit=crop&crop=face",
-    compatibility: 75,
-    university: "РАНХиГС",
-    course: "2 курс",
-    goal: "IELTS",
-    goalDescription: "Хочу сдать IELTS на 7+, ищу мотивированного напарника",
-    telegram: "@zhenyaSemenova",
-  },
-  {
-    id: 5,
-    name: "Игорь Сафонов",
-    age: 18,
-    city: "Москва",
-    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=500&fit=crop&crop=face",
-    compatibility: 71,
-    university: "МГИМО",
-    course: "4 курс",
-    goal: "IELTS",
-    goalDescription: "Готовлюсь к IELTS Academic, нужен партнер для writing practice",
-    telegram: "@igorSafonov",
-  },
-]
-
-// ========== CONTEXT ==========
 interface AppState {
   screen: AppScreen
   user: UserProfile
@@ -152,6 +84,12 @@ interface AppState {
   currentCandidateIndex: number
   likedCandidates: number[]
   matchedCandidate: Candidate | null
+  candidates: Candidate[]
+  isLoadingCandidates: boolean
+  isLoggedIn: boolean
+  authUserId: number | null
+  authEmail: string | null
+  apiError: string | null
 }
 
 interface AppContextType {
@@ -163,6 +101,12 @@ interface AppContextType {
   rejectCurrent: () => void
   nextCandidate: () => void
   setState: React.Dispatch<React.SetStateAction<AppState>>
+  login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, telegram?: string) => Promise<void>
+  logout: () => Promise<void>
+  loadCandidates: () => Promise<void>
+  saveProfile: () => Promise<void>
+  savePreferences: () => Promise<void>
 }
 
 const defaultUser: UserProfile = {
@@ -207,8 +151,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentCandidateIndex: 0,
     likedCandidates: [],
     matchedCandidate: null,
+    candidates: [],
+    isLoadingCandidates: false,
+    isLoggedIn: false,
+    authUserId: null,
+    authEmail: null,
+    apiError: null,
   })
 
+  // Используем ref чтобы иметь доступ к актуальному state внутри колбэков
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  // ========== ЗАГРУЗКА КАНДИДАТОВ ==========
+  const loadCandidates = useCallback(async () => {
+    setState((prev) => ({ ...prev, isLoadingCandidates: true, apiError: null }))
+    try {
+      const data = await matchingAPI.getCandidates({ limit: 50, offset: 0 })
+      const list: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
+      setState((prev) => ({
+        ...prev,
+        candidates: list,
+        currentCandidateIndex: 0,
+        isLoadingCandidates: false,
+      }))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Ошибка загрузки кандидатов"
+      setState((prev) => ({ ...prev, isLoadingCandidates: false, apiError: msg }))
+    }
+  }, [])
+
+  // При старте — проверяем сессию
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const me = await authAPI.getMe()
+        if (me && (me as { id?: number }).id) {
+          const user = me as { id: number; email: string }
+          setState((prev) => ({
+            ...prev,
+            isLoggedIn: true,
+            authUserId: user.id,
+            authEmail: user.email,
+            screen: "main",
+          }))
+          await loadCandidates()
+        } else {
+          setState((prev) => ({ ...prev, screen: "auth" }))
+        }
+      } catch {
+        setState((prev) => ({ ...prev, screen: "auth" }))
+      }
+    }
+
+    const timer = setTimeout(checkSession, 1500)
+    return () => clearTimeout(timer)
+  }, [loadCandidates])
+
+  // ========== БАЗОВЫЕ ФУНКЦИИ ==========
   const setScreen = useCallback((screen: AppScreen) => {
     setState((prev) => ({ ...prev, screen }))
   }, [])
@@ -225,15 +225,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const likeCurrent = useCallback(() => {
-    setState((prev) => {
-      const candidate = mockCandidates[prev.currentCandidateIndex]
-      if (!candidate) return prev
-      return {
-        ...prev,
-        likedCandidates: [...prev.likedCandidates, candidate.id],
-        currentCandidateIndex: prev.currentCandidateIndex + 1,
-      }
-    })
+    const current = stateRef.current
+    const candidate = current.candidates[current.currentCandidateIndex]
+    if (!candidate) return
+
+    // Сначала обновляем UI
+    setState((prev) => ({
+      ...prev,
+      likedCandidates: [...prev.likedCandidates, candidate.id],
+      currentCandidateIndex: prev.currentCandidateIndex + 1,
+    }))
+
+    // Потом отправляем в бэк
+    favoritesAPI.like(candidate.id).catch(console.error)
   }, [])
 
   const rejectCurrent = useCallback(() => {
@@ -250,9 +254,89 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+  // ========== AUTH ==========
+  const login = useCallback(async (email: string, password: string) => {
+    const result = await authAPI.login(email, password) as { user?: { id: number; email: string } }
+    const user = result?.user ?? (result as { id?: number; email?: string })
+    setState((prev) => ({
+      ...prev,
+      isLoggedIn: true,
+      authUserId: (user as { id?: number })?.id ?? null,
+      authEmail: (user as { email?: string })?.email ?? email,
+      apiError: null,
+    }))
+    await loadCandidates()
+  }, [loadCandidates])
+
+  const register = useCallback(async (email: string, password: string, telegram?: string) => {
+    const result = await authAPI.register(email, password, telegram) as { user?: { id: number; email: string } }
+    const user = result?.user ?? (result as { id?: number; email?: string })
+    setState((prev) => ({
+      ...prev,
+      isLoggedIn: true,
+      authUserId: (user as { id?: number })?.id ?? null,
+      authEmail: (user as { email?: string })?.email ?? email,
+      apiError: null,
+    }))
+  }, [])
+
+  const logout = useCallback(async () => {
+    try {
+      await authAPI.logout()
+    } catch {
+      // не страшно
+    }
+    setState((prev) => ({
+      ...prev,
+      isLoggedIn: false,
+      authUserId: null,
+      authEmail: null,
+      candidates: [],
+      screen: "auth",
+      user: defaultUser,
+    }))
+  }, [])
+
+  // ========== СОХРАНЕНИЕ ПРОФИЛЯ ==========
+  const saveProfile = useCallback(async () => {
+    const u = stateRef.current.user
+    await profileAPI.updateAboutMe({
+      firstName: u.firstName,
+      lastName: u.lastName,
+      city: u.city,
+      studyGoal: u.studyGoals[0]?.name ?? "",
+      proficiencyLevel: u.knowledgeLevel,
+      schedule: u.preferredTime,
+    })
+  }, [])
+
+  const savePreferences = useCallback(async () => {
+    const u = stateRef.current.user
+    await profileAPI.updatePartnerPreferences({
+      preferredLevel: u.partnerLevel,
+      preferredSchedule: u.preferredTime,
+      city: u.city,
+    })
+  }, [])
+
   return (
     <AppContext.Provider
-      value={{ state, setScreen, updateUser, addStudyGoal, likeCurrent, rejectCurrent, nextCandidate, setState }}
+      value={{
+        state,
+        setScreen,
+        updateUser,
+        addStudyGoal,
+        likeCurrent,
+        rejectCurrent,
+        nextCandidate,
+        setState,
+        login,
+        register,
+        logout,
+        loadCandidates,
+        saveProfile,
+        savePreferences,
+      }}
     >
       {children}
     </AppContext.Provider>

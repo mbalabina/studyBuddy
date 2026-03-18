@@ -1,240 +1,125 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ChevronLeft } from "lucide-react"
 
 export default function AuthScreen() {
-  const { state, setScreen } = useApp()
-  const [authMethod, setAuthMethod] = useState<"email" | "phone">("email")
+  const { login, register, setScreen } = useApp()
+  const [isRegister, setIsRegister] = useState(false)
   const [email, setEmail] = useState("")
-  const [codeSent, setCodeSent] = useState(false)
-  const [mockCode, setMockCode] = useState("")
+  const [password, setPassword] = useState("")
+  const [telegram, setTelegram] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  const isAuthCode = state.screen === "auth-code"
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) return
+    setIsLoading(true)
+    setError("")
 
-  const handleSendCode = () => {
-    const generated = String(Math.floor(1000 + Math.random() * 9000))
-    setMockCode(generated)
-    setCodeSent(true)
-    setScreen("auth-code")
-  }
-
-  const handleBackToInput = () => {
-    setCodeSent(false)
-    setMockCode("")
-    setScreen("auth")
+    try {
+      if (isRegister) {
+        await register(email.trim(), password, telegram.trim() || undefined)
+        // После регистрации идём заполнять профиль
+        setScreen("about-step1")
+      } else {
+        await login(email.trim(), password)
+        setScreen("main")
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Ошибка"
+      if (msg.includes("User already exists")) {
+        setError("Пользователь уже существует. Войдите.")
+      } else if (msg.includes("User not found") || msg.includes("Invalid password")) {
+        setError("Неверный email или пароль")
+      } else {
+        setError(msg)
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
-      {/* Header */}
       <div className="flex items-center h-14 mt-2">
-        {isAuthCode && (
-          <button onClick={handleBackToInput} className="p-1" aria-label="Back">
+        {isRegister && (
+          <button onClick={() => { setIsRegister(false); setError("") }} className="p-1">
             <ChevronLeft className="w-6 h-6" />
           </button>
         )}
       </div>
 
       <div className="flex-1 flex flex-col">
-        <h1 className="text-xl font-bold text-center mb-8">Авторизация</h1>
+        <h1 className="text-xl font-bold text-center mb-2">
+          {isRegister ? "Регистрация" : "Вход"}
+        </h1>
+        <p className="text-sm text-gray-400 text-center mb-8">
+          {isRegister ? "Создайте аккаунт Study Buddy" : "Войдите в свой аккаунт"}
+        </p>
 
-        {/* Toggle */}
-        <div className="toggle-pill mx-auto mb-10 w-full max-w-[280px]">
-          <button
-            className={authMethod === "email" ? "active" : ""}
-            onClick={() => { setAuthMethod("email"); if (!isAuthCode) setEmail("") }}
-          >
-            Email
-          </button>
-          <button
-            className={authMethod === "phone" ? "active" : ""}
-            onClick={() => { setAuthMethod("phone"); if (!isAuthCode) setEmail("") }}
-          >
-            Телефон
-          </button>
-        </div>
-
-        {!isAuthCode ? (
-          <div className="flex-1 flex flex-col">
-            <label className="text-base font-semibold text-center mb-3">
-              {authMethod === "email" ? "Email" : "Телефон"}
-            </label>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-1 block">Email</label>
             <input
-              type={authMethod === "email" ? "email" : "tel"}
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder={authMethod === "email" ? "name@edu.hse.com" : "+7 (999) 123-45-67"}
-              className="text-center text-lg py-3 border-b-2 border-gray-200 focus:border-black outline-none transition-colors bg-transparent"
+              placeholder="name@example.com"
+              className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
             />
-
-            <div className="mt-auto pb-8">
-              <button
-                className="btn-green"
-                onClick={handleSendCode}
-                disabled={!email.trim()}
-              >
-                Получить код
-              </button>
-            </div>
           </div>
-        ) : (
-          <AuthCodeView
-            onVerify={() => setScreen("about-step1")}
-            onBack={handleBackToInput}
-            authMethod={authMethod}
-            contactValue={email}
-            mockCode={mockCode}
-            onResend={handleSendCode}
-          />
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Пароль</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Минимум 6 символов"
+              className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+            />
+          </div>
+
+          {isRegister && (
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Telegram <span className="text-gray-400 font-normal">(необязательно)</span>
+              </label>
+              <input
+                type="text"
+                value={telegram}
+                onChange={(e) => setTelegram(e.target.value)}
+                placeholder="@username"
+                className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+              />
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <p className="text-red-500 text-sm text-center mt-4 animate-fade-in">{error}</p>
         )}
-      </div>
-    </div>
-  )
-}
 
-function AuthCodeView({
-  onVerify,
-  onBack,
-  authMethod,
-  contactValue,
-  mockCode,
-  onResend,
-}: {
-  onVerify: () => void
-  onBack: () => void
-  authMethod: string
-  contactValue: string
-  mockCode: string
-  onResend: () => void
-}) {
-  const [code, setCode] = useState(["", "", "", ""])
-  const [timer, setTimer] = useState(59)
-  const [error, setError] = useState(false)
-  const [showBanner, setShowBanner] = useState(true)
-
-  useEffect(() => {
-    if (timer <= 0) return
-    const interval = setInterval(() => {
-      setTimer((prev) => prev - 1)
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [timer])
-
-  const verifyCode = useCallback(
-    (digits: string[]) => {
-      const entered = digits.join("")
-      if (entered === mockCode) {
-        setError(false)
-        setTimeout(onVerify, 300)
-      } else {
-        setError(true)
-        setTimeout(() => {
-          setCode(["", "", "", ""])
-          setError(false)
-          const first = document.getElementById("code-0")
-          first?.focus()
-        }, 800)
-      }
-    },
-    [mockCode, onVerify]
-  )
-
-  const handleDigit = (index: number, value: string) => {
-    if (!/^\d?$/.test(value)) return
-    const newCode = [...code]
-    newCode[index] = value
-    setCode(newCode)
-    setError(false)
-
-    if (value && index < 3) {
-      const next = document.getElementById(`code-${index + 1}`)
-      next?.focus()
-    }
-
-    if (newCode.every((d) => d !== "")) {
-      verifyCode(newCode)
-    }
-  }
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !code[index] && index > 0) {
-      const prev = document.getElementById(`code-${index - 1}`)
-      prev?.focus()
-    }
-  }
-
-  const handleResend = () => {
-    setCode(["", "", "", ""])
-    setTimer(59)
-    setError(false)
-    setShowBanner(true)
-    onResend()
-  }
-
-  return (
-    <div className="flex-1 flex flex-col animate-slide-in-right">
-      {/* Mock code banner */}
-      {showBanner && (
-        <div className="mx-auto mb-4 px-4 py-2.5 rounded-xl bg-[var(--green-light)] border border-[var(--green-accent)] text-sm text-center max-w-[300px]">
-          <p className="text-gray-500 text-xs mb-0.5">
-            {authMethod === "email"
-              ? `Код отправлен на ${contactValue}`
-              : `SMS отправлено на ${contactValue}`}
-          </p>
-          <p className="font-bold text-lg tracking-[0.3em]">{mockCode}</p>
+        <div className="mt-auto pb-8 space-y-3">
           <button
-            onClick={() => setShowBanner(false)}
-            className="text-xs text-gray-400 mt-1 underline"
+            className="btn-green"
+            onClick={handleSubmit}
+            disabled={isLoading || !email.trim() || !password.trim()}
           >
-            Скрыть
+            {isLoading ? "Загрузка..." : isRegister ? "Зарегистрироваться" : "Войти"}
+          </button>
+
+          <button
+            className="w-full text-sm text-gray-500 underline text-center"
+            onClick={() => { setIsRegister(!isRegister); setError("") }}
+          >
+            {isRegister
+              ? "Уже есть аккаунт? Войти"
+              : "Нет аккаунта? Зарегистрироваться"}
           </button>
         </div>
-      )}
-
-      <label className="text-base font-semibold text-center mb-6">Код</label>
-      <div className="flex justify-center gap-3 mb-4">
-        {code.map((digit, i) => (
-          <input
-            key={i}
-            id={`code-${i}`}
-            type="text"
-            inputMode="numeric"
-            maxLength={1}
-            value={digit}
-            onChange={(e) => handleDigit(i, e.target.value)}
-            onKeyDown={(e) => handleKeyDown(i, e)}
-            className={`w-14 h-14 text-center text-xl font-bold border-2 rounded-xl outline-none transition-colors bg-gray-50 ${
-              error
-                ? "border-red-400 animate-shake"
-                : "border-gray-200 focus:border-black"
-            }`}
-          />
-        ))}
-      </div>
-
-      {error && (
-        <p className="text-center text-red-500 text-sm mb-4 animate-fade-in">
-          Неверный код, попробуйте снова
-        </p>
-      )}
-
-      <div className="mt-auto pb-8 space-y-3 text-center">
-        <button
-          className="btn-outline-gray w-full"
-          disabled={timer > 0}
-          onClick={handleResend}
-        >
-          {timer > 0
-            ? `Отправить снова (00:${timer.toString().padStart(2, "0")})`
-            : "Отправить снова"}
-        </button>
-        <button className="text-sm text-gray-400 underline" onClick={onBack}>
-          {authMethod === "email"
-            ? "Вернуться к вводу почты"
-            : "Вернуться к вводу номера"}
-        </button>
       </div>
     </div>
   )

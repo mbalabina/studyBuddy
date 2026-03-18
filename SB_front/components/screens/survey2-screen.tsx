@@ -4,7 +4,6 @@ import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ChevronLeft } from "lucide-react"
 
-// Survey 2: Пожелания к StudyBuddy (5 questions)
 const survey2Questions = [
   {
     id: "importantInStudy",
@@ -65,14 +64,13 @@ const survey2Questions = [
 ]
 
 export default function Survey2Screen() {
-  const { setScreen, updateUser } = useApp()
+  const { state, setScreen, updateUser } = useApp()
   const [currentQ, setCurrentQ] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
 
   const question = survey2Questions[currentQ]
   const total = survey2Questions.length
   const progress = ((currentQ + 1) / total) * 100
-
   const currentAnswer = answers[question.id]
 
   const canProceed = () => {
@@ -92,7 +90,9 @@ export default function Survey2Screen() {
         importantTraits: (answers.importantTraits as string[]) || [],
         partnerLearningStyle: (answers.partnerLearningStyle as string[]) || [],
       })
-      setScreen("main")
+      // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск
+      // Если нет — это первый онбординг, идём на главную
+      setScreen(state.user.firstName ? "search-intro" : "main")
     }
   }
 
@@ -113,7 +113,6 @@ export default function Survey2Screen() {
 
   return (
     <div className="flex flex-col min-h-dvh px-6">
-      {/* Header */}
       <div className="flex items-center justify-between h-14 mt-2">
         <button
           onClick={() => currentQ > 0 ? setCurrentQ(currentQ - 1) : setScreen("survey1")}
@@ -126,7 +125,6 @@ export default function Survey2Screen() {
         <div className="w-8" />
       </div>
 
-      {/* Progress */}
       <div className="progress-bar mt-2 mb-6">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>

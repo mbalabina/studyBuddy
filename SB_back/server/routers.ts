@@ -4,6 +4,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import * as auth from "./auth";
 import * as db from "./db";
+import { compareGoals } from "./groq";
 
 type JsonArrayValue = string[] | null | undefined;
 
@@ -13,7 +14,12 @@ function normalizeStringArray(value: JsonArrayValue): string[] {
   return [];
 }
 
-function calculateCompatibility(user1Profile: any, user1Prefs: any, user2Profile: any): number {
+function calculateCompatibility(
+  user1Profile: any,
+  user1Prefs: any,
+  user2Profile: any,
+  goalSimilarity: number = 0.5
+): number {
   let score = 0;
   let maxScore = 0;
 
@@ -56,11 +62,9 @@ function calculateCompatibility(user1Profile: any, user1Prefs: any, user2Profile
     score += 10;
   }
 
-  if (user1Profile?.studyGoal && user2Profile?.studyGoal) {
+  if (user1Profile?.studyGoal || user2Profile?.studyGoal) {
     maxScore += 10;
-    if (user1Profile.studyGoal === user2Profile.studyGoal) {
-      score += 10;
-    }
+    score += Math.round(goalSimilarity * 10);
   }
 
   if (user1Profile?.subjects && user2Profile?.subjects) {
@@ -132,7 +136,9 @@ const searchInput = z.object({
   offset: z.number().int().min(0).default(0),
 });
 
-export const appRouter = router({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const appRouter: any = router({
+
   auth: router({
     me: publicProcedure.query(async ({ ctx }) => {
       if (!ctx.user) return null;
@@ -316,13 +322,14 @@ export const appRouter = router({
     users: protectedProcedure.input(searchInput).query(async ({ input, ctx }) => {
       const currentUserId = ctx.user!.userId;
 
-      const [currentProfile, currentPreferences, allUsers, allProfiles, favoriteIds] = await Promise.all([
-        db.getProfile(currentUserId),
-        db.getPreferences(currentUserId),
-        db.getAllUsers(),
-        db.getAllProfiles(),
-        db.getUserFavorites(currentUserId),
-      ]);
+      const [currentProfile, currentPreferences, allUsers, allProfiles, favoriteIds] =
+        await Promise.all([
+          db.getProfile(currentUserId),
+          db.getPreferences(currentUserId),
+          db.getAllUsers(),
+          db.getAllProfiles(),
+          db.getUserFavorites(currentUserId),
+        ]);
 
       const favoritesSet = new Set(favoriteIds);
       const profileMap = new Map(allProfiles.map((item) => [item.userId, item]));
@@ -331,7 +338,7 @@ export const appRouter = router({
       const normalizedSubject = input.subject?.toLowerCase();
       const normalizedLevel = input.proficiencyLevel?.toLowerCase();
 
-      const items = allUsers
+      const filtered = allUsers
         .filter((user) => user.id !== currentUserId)
         .filter((user) => (input.onlyCompleteProfiles ? user.isProfileComplete : true))
         .map((user) => {
@@ -357,56 +364,59 @@ export const appRouter = router({
               .join(" ")
               .toLowerCase();
 
-            if (!haystack.includes(normalizedQuery)) {
-              return false;
-            }
+            if (!haystack.includes(normalizedQuery)) return false;
           }
 
-          if (normalizedCity && (profile.city || "").toLowerCase() !== normalizedCity) {
-            return false;
-          }
+          if (normalizedCity && (profile.city || "").toLowerCase() !== normalizedCity) return false;
 
           if (
             normalizedSubject &&
-            !normalizeStringArray(profile.subjects).some((item) => item.toLowerCase().includes(normalizedSubject))
-          ) {
+            !normalizeStringArray(profile.subjects).some((item) =>
+              item.toLowerCase().includes(normalizedSubject),
+            )
+          )
             return false;
-          }
 
           if (
             normalizedLevel &&
             (profile.proficiencyLevel || "").toLowerCase() !== normalizedLevel
-          ) {
+          )
             return false;
-          }
 
-          if (typeof input.minAge === "number" && (profile.age ?? -1) < input.minAge) {
-            return false;
-          }
-
-          if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) {
-            return false;
-          }
+          if (typeof input.minAge === "number" && (profile.age ?? -1) < input.minAge) return false;
+          if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
 
           return true;
-        })
-        .map(({ user, profile }) => {
-          const compatibility = profile
-            ? calculateCompatibility(currentProfile, currentPreferences, profile)
-            : 0;
+        });
 
-          return buildCandidateCard({
-            user,
-            profile,
-            compatibility,
-            isFavorite: favoritesSet.has(user.id),
-          });
-        })
+      // ✅ Запрашиваем Groq для всех кандидатов параллельно
+      const items = (
+        await Promise.all(
+          filtered.map(async ({ user, profile }) => {
+            const goalSimilarity =
+              profile?.studyGoal
+                ? await compareGoals(
+                    currentProfile?.studyGoal || "",
+                    profile.studyGoal,
+                  )
+                : 0.5;
+
+            const compatibility = profile
+              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+              : 0;
+
+            return buildCandidateCard({
+              user,
+              profile,
+              compatibility,
+              isFavorite: favoritesSet.has(user.id),
+            });
+          }),
+        )
+      )
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
         .sort((a, b) => {
-          if (b.compatibility !== a.compatibility) {
-            return b.compatibility - a.compatibility;
-          }
+          if (b.compatibility !== a.compatibility) return b.compatibility - a.compatibility;
           return a.name.localeCompare(b.name);
         });
 
@@ -431,7 +441,8 @@ export const appRouter = router({
         }),
       )
       .query(async ({ input, ctx }) => {
-        const result = await appRouter.createCaller(ctx).search.users({
+        const result = await (appRouter as any).createCaller(ctx).search.users({
+
           limit: input.limit,
           offset: input.offset,
           onlyCompleteProfiles: true,
@@ -455,7 +466,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Candidate not found" });
         }
 
-        const compatibility = calculateCompatibility(currentProfile, currentPreferences, profile);
+        const goalSimilarity = await compareGoals(
+          currentProfile?.studyGoal || "",
+          profile.studyGoal || "",
+        );
+
+        const compatibility = calculateCompatibility(
+          currentProfile,
+          currentPreferences,
+          profile,
+          goalSimilarity,
+        );
         return buildCandidateCard({ user, profile, compatibility, isFavorite });
       }),
   }),

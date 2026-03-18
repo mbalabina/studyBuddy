@@ -30,7 +30,10 @@ function AppContent() {
     case "about-step3":
     case "about-congrats":
     case "about-goal":
+    case "new-goal":        // ← добавь эту строку
     case "about-congrats2":
+  return <AboutYouScreen />
+
       return <AboutYouScreen />
     case "survey1":
       return <Survey1Screen />

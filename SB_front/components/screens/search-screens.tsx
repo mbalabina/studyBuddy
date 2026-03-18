@@ -1,42 +1,231 @@
 "use client"
 
-import { useApp, mockCandidates, type Candidate } from "@/lib/app-context"
-import Image from "next/image"
-import { ChevronLeft, Plus, Search, Heart, Home } from "lucide-react"
-import { TabBar } from "@/components/screens/home-screen"
+import { useEffect, useMemo, useState } from "react"
+import { useApp, type Candidate } from "@/lib/app-context"
+import { ChevronLeft, Heart, X, MessageCircle, MapPin, GraduationCap } from "lucide-react"
+import { TabBar } from "@/components/screens/tab-bar"
 
-// ==================== SEARCH INTRO ====================
+
 export default function SearchIntroScreen() {
-  const { setScreen, setState } = useApp()
+  const { state, setScreen, loadCandidates, addStudyGoal } = useApp()
+  const [showModal, setShowModal] = useState(false)
+  const [newGoalName, setNewGoalName] = useState("")
+  const [newGoalDesc, setNewGoalDesc] = useState("")
+
+  useEffect(() => {
+    if (state.isLoggedIn) {
+      loadCandidates().catch(console.error)
+    }
+  }, [state.isLoggedIn, loadCandidates])
+
+  const handleAddGoal = () => {
+    if (!newGoalName.trim()) return
+    addStudyGoal({
+      id: Date.now().toString(),
+      name: newGoalName.trim(),
+      description: newGoalDesc.trim(),
+      startDate: new Date().toISOString(),
+    })
+    setNewGoalName("")
+    setNewGoalDesc("")
+    setShowModal(false)
+  }
+
+  const goals = state.user.studyGoals
 
   return (
-    <div className="flex flex-col min-h-dvh">
-      <div className="flex-1 overflow-y-auto">
-        {/* Hero card */}
-        <div className="relative h-[55vh] overflow-hidden">
-          <Image
-            src={mockCandidates[0].avatar}
-            alt="candidate"
-            fill
-            className="object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-          <div className="absolute bottom-6 left-5 right-5">
-            <p className="text-white text-lg font-medium mb-2">
-              {"Нашли "}{mockCandidates.length}{" человек для тебя"}
-            </p>
+    <div className="flex flex-col min-h-dvh animate-fade-in">
+      <div className="flex items-center justify-between px-6 h-14 mt-2">
+        <button onClick={() => setScreen("main")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Поиск Study Buddy</span>
+        <div className="w-8" />
+      </div>
+
+      <div className="flex items-center gap-2 px-6 mt-1 mb-5 overflow-x-auto">
+        {goals.map((goal) => (
+          <button
+            key={goal.id}
+            className="px-4 py-1.5 rounded-full border border-black text-sm font-medium whitespace-nowrap"
+          >
+            {goal.name}
+          </button>
+        ))}
+
+        <button
+        onClick={() => setScreen("about-goal")}
+        className="px-3 py-1.5 rounded-full border border-gray-300 text-sm text-gray-400 whitespace-nowrap"
+        >
+          +
+        </button>
+      </div>
+
+      <div className="flex-1 px-6 space-y-4">
+        {state.apiError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {state.apiError}
+          </div>
+        )}
+
+        <button
+          className="w-full bg-[var(--green-light)] rounded-3xl p-5 text-left"
+          onClick={() => setScreen("search-card")}
+          disabled={state.isLoadingCandidates}
+        >
+          <p className="text-lg font-bold mb-1">
+            {state.isLoadingCandidates ? "Загружаем..." : "Просмотр кандидатов"}
+          </p>
+          <p className="text-sm text-gray-600">
+            Посмотри подобранных для тебя кандидатов и найди своего бадди!
+          </p>
+        </button>
+
+        <button
+          className="w-full bg-[var(--green-light)] rounded-3xl p-5 text-left"
+          onClick={() => setScreen("likes")}
+        >
+          <p className="text-lg font-bold mb-1">Отобрали тебя</p>
+          <p className="text-sm text-gray-600">
+            Посмотри кто выбрал тебя для совместного обучения!
+          </p>
+        </button>
+
+        <button
+          className="w-full bg-[var(--green-light)] rounded-3xl p-5 text-left"
+          onClick={() => setScreen("likes")}
+        >
+          <p className="text-lg font-bold mb-1">Отобрал ты</p>
+          <p className="text-sm text-gray-600">
+            Посмотри кого ты уже выбрал для совместного обучения!
+          </p>
+        </button>
+      </div>
+
+      <TabBar active="likes" setScreen={setScreen} />
+
+      {/* Модальное окно добавления цели */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="w-full bg-white rounded-t-3xl p-6 space-y-4">
+            <h2 className="text-lg font-bold">Новая учебная цель</h2>
+
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">Название</label>
+              <input
+                type="text"
+                value={newGoalName}
+                onChange={(e) => setNewGoalName(e.target.value)}
+                placeholder="Например: IELTS, ЕГЭ математика..."
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-black"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">Описание (необязательно)</label>
+              <input
+                type="text"
+                value={newGoalDesc}
+                onChange={(e) => setNewGoalDesc(e.target.value)}
+                placeholder="Что именно хочешь достичь?"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-black"
+              />
+            </div>
+
+            <button
+              className="btn-green"
+              onClick={handleAddGoal}
+              disabled={!newGoalName.trim()}
+            >
+              Добавить
+            </button>
+            <button className="btn-outline-gray" onClick={() => setShowModal(false)}>
+              Отмена
+            </button>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
 
-        <div className="px-5 py-6">
+
+export function CandidateCardScreen() {
+  const { state, setScreen, likeCurrent, rejectCurrent } = useApp()
+
+  const candidate = state.candidates[state.currentCandidateIndex]
+
+  if (state.isLoadingCandidates) {
+    return (
+      <div className="flex flex-col min-h-dvh px-6">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("search-intro")} className="p-1" aria-label="Back">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <span className="text-base font-semibold">Кандидаты</span>
+          <div className="w-8" />
+        </div>
+        <div className="flex-1 flex items-center justify-center text-gray-500">
+          Загружаем кандидатов...
+        </div>
+      </div>
+    )
+  }
+
+  if (!candidate) {
+    return (
+      <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("search-intro")} className="p-1" aria-label="Back">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <span className="text-base font-semibold">Кандидаты</span>
+          <div className="w-8" />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="bg-[var(--green-light)] rounded-3xl p-6 w-full">
+            <h2 className="text-xl font-bold mb-2">Кандидаты закончились</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Попробуй зайти позже или обновить подборку.
+            </p>
+            <button className="btn-green" onClick={() => setScreen("search-intro")}>
+              Назад
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+      <div className="flex items-center justify-between h-14 mt-2">
+        <button onClick={() => setScreen("search-intro")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Кандидаты</span>
+        <div className="text-sm text-gray-400">
+          {state.currentCandidateIndex + 1}/{state.candidates.length}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center">
+        <CandidateCardView candidate={candidate} onOpen={() => setScreen("search-profile")} />
+
+        <div className="flex items-center justify-center gap-6 mt-6 pb-8">
           <button
-            onClick={() => {
-              setState((prev) => ({ ...prev, currentCandidateIndex: 0 }))
-              setScreen("search-card")
-            }}
-            className="btn-green"
+            onClick={rejectCurrent}
+            className="w-14 h-14 rounded-full border-2 border-gray-200 flex items-center justify-center bg-white shadow-sm"
+            aria-label="Skip"
           >
-            К выбору
+            <X className="w-7 h-7" />
+          </button>
+          <button
+            onClick={likeCurrent}
+            className="w-16 h-16 rounded-full bg-black text-white flex items-center justify-center shadow-lg"
+            aria-label="Like"
+          >
+            <Heart className="w-7 h-7 fill-current" />
           </button>
         </div>
       </div>
@@ -44,89 +233,205 @@ export default function SearchIntroScreen() {
   )
 }
 
-// ==================== CANDIDATE CARD (Tinder-like) ====================
-export function CandidateCardScreen() {
-  const { state, setScreen, likeCurrent, rejectCurrent, setState } = useApp()
+export function CandidateDetailScreen() {
+  const { state, setScreen, likeCurrent } = useApp()
 
-  const candidate = mockCandidates[state.currentCandidateIndex]
+  const candidate = state.candidates[state.currentCandidateIndex]
 
   if (!candidate) {
     return (
-      <div className="flex flex-col min-h-dvh items-center justify-center px-6">
-        <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-4 object-contain" />
-        <h2 className="text-xl font-bold mb-2 text-center">Кандидаты закончились</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">Мы подберем новых бадди для тебя</p>
-        <button onClick={() => setScreen("main")} className="btn-green !w-auto px-8">
-          На главную
-        </button>
+      <div className="flex flex-col min-h-dvh px-6">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("search-card")} className="p-1" aria-label="Back">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <span className="text-base font-semibold">Профиль</span>
+          <div className="w-8" />
+        </div>
+        <div className="flex-1 flex items-center justify-center text-gray-500">
+          Кандидат не найден
+        </div>
       </div>
     )
   }
 
-  const handleLike = () => {
-    setState((prev) => ({
-      ...prev,
-      matchedCandidate: candidate,
-    }))
-    likeCurrent()
-    setScreen("search-profile")
-  }
-
-  const handleSkip = () => {
-    rejectCurrent()
-  }
-
   return (
-    <div className="flex flex-col min-h-dvh">
-      <div className="relative flex-1">
-        {/* Full-screen photo */}
-        <div className="relative h-[72vh]">
-          <Image
-            src={candidate.avatar}
-            alt={candidate.name}
-            fill
-            className="object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+    <div className="flex flex-col min-h-dvh animate-fade-in">
+      <div className="px-6">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("search-card")} className="p-1" aria-label="Back">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <span className="text-base font-semibold">Профиль</span>
+          <div className="w-8" />
+        </div>
+      </div>
 
-          {/* Info overlay */}
-          <div className="absolute bottom-6 left-5 right-5">
-            <div className="inline-block bg-[var(--green-primary)] text-white text-sm font-bold rounded-full px-3 py-1 mb-2">
-              {candidate.compatibility}%
+      <div className="px-6 pb-8">
+        <img
+          src={candidate.avatar}
+          alt={candidate.name}
+          className="w-full h-[320px] object-cover rounded-3xl"
+        />
+
+        <div className="mt-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold">{candidate.name}</h1>
+              <p className="text-sm text-gray-500">{candidate.age} лет</p>
             </div>
-            <h2 className="text-2xl font-bold text-white mb-1">
-              {candidate.name}
-            </h2>
-            <p className="text-white/80 text-sm">
-              {candidate.age}{" лет \u00B7 "}{candidate.city}
-            </p>
+            <div className="rounded-full bg-[var(--green-light)] px-3 py-1 text-sm font-semibold">
+              {candidate.compatibility}% match
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3 text-sm text-gray-700">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              <span>{candidate.city || "Город не указан"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-4 h-4" />
+              <span>{candidate.university || "Учебное заведение не указано"}</span>
+            </div>
+            <div className="rounded-2xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Цель</p>
+              <p className="font-medium">{candidate.goal || "Цель не указана"}</p>
+              <p className="text-sm text-gray-600 mt-2">
+                {candidate.goalDescription || "Описание пока не заполнено"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Контакт</p>
+              <p>{candidate.telegram || "Telegram не указан"}</p>
+            </div>
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center justify-center gap-6 py-5">
+        <div className="mt-6 space-y-3">
           <button
-            onClick={handleSkip}
-            className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center active:scale-95 transition-transform"
+            className="btn-green"
+            onClick={() => {
+              likeCurrent()
+              setScreen("match-success")
+            }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" />
-            </svg>
+            Лайкнуть
           </button>
-          <button
-            onClick={handleLike}
-            className="w-14 h-14 rounded-full bg-[var(--green-light)] flex items-center justify-center active:scale-95 transition-transform"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
-                fill="var(--green-primary)"
-                stroke="var(--green-primary)"
-                strokeWidth="1.5"
-              />
-            </svg>
+          <button className="btn-outline-gray" onClick={() => setScreen("search-card")}>
+            Назад к карточкам
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+export function MatchWaitingScreen() {
+  const { setScreen } = useApp()
+
+  return (
+    <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+      <div className="flex-1 flex flex-col items-center justify-center text-center">
+        <div className="w-20 h-20 rounded-full bg-[var(--green-light)] flex items-center justify-center mb-6">
+          <Heart className="w-9 h-9" />
+        </div>
+        <h1 className="text-2xl font-bold mb-3">Лайк отправлен</h1>
+        <p className="text-sm text-gray-600 mb-8 max-w-[280px]">
+          Если симпатия взаимная, вы сможете перейти к общению.
+        </p>
+        <button className="btn-green" onClick={() => setScreen("search-card")}>
+          Смотреть дальше
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function MatchSuccessScreen() {
+  const { state, setScreen } = useApp()
+
+  const candidate =
+    state.matchedCandidate ??
+    state.candidates[Math.max(0, state.currentCandidateIndex - 1)] ??
+    null
+
+  return (
+    <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+      <div className="flex-1 flex flex-col items-center justify-center text-center">
+        <div className="w-24 h-24 rounded-full bg-[var(--green-light)] flex items-center justify-center mb-6">
+          <MessageCircle className="w-10 h-10" />
+        </div>
+        <h1 className="text-2xl font-bold mb-3">Контакт сохранён</h1>
+        <p className="text-sm text-gray-600 mb-3">
+          {candidate ? `Ты лайкнула ${candidate.name}.` : "Лайк успешно отправлен."}
+        </p>
+        <p className="text-sm text-gray-500 mb-8">
+          {candidate?.telegram ? `Связь: ${candidate.telegram}` : "Контакт пока не указан."}
+        </p>
+        <div className="w-full space-y-3">
+          <button className="btn-green" onClick={() => setScreen("search-card")}>
+            Продолжить поиск
+          </button>
+          <button className="btn-outline-gray" onClick={() => setScreen("likes")}>
+            Перейти в мои лайки
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function LikesScreen() {
+  const { state, setScreen } = useApp()
+
+  const likedItems = useMemo(
+    () => state.candidates.filter((candidate) => state.likedCandidates.includes(candidate.id)),
+    [state.candidates, state.likedCandidates]
+  )
+
+  return (
+    <div className="flex flex-col min-h-dvh animate-fade-in">
+      <div className="flex items-center justify-between px-6 h-14 mt-2">
+        <button onClick={() => setScreen("main")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Мои лайки</span>
+        <div className="w-8" />
+      </div>
+
+      <div className="flex-1 px-6 pt-4 pb-28">
+        {likedItems.length === 0 ? (
+          <div className="bg-gray-50 rounded-3xl p-6 text-center mt-10">
+            <h2 className="text-lg font-semibold mb-2">Пока пусто</h2>
+            <p className="text-sm text-gray-500 mb-5">Ты ещё никого не лайкнула.</p>
+            <button className="btn-green" onClick={() => setScreen("search-intro")}>
+              Перейти к поиску
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {likedItems.map((candidate) => (
+              <MiniCandidateCard
+                key={candidate.id}
+                candidate={candidate}
+                onClick={() => {
+                  const index = state.candidates.findIndex((item) => item.id === candidate.id)
+                  setScreen("likes-candidates")
+                  if (index >= 0) {
+                    setTimeout(() => {
+                      window.dispatchEvent(
+                        new CustomEvent("studybuddy-open-liked-candidate", {
+                          detail: { index },
+                        })
+                      )
+                    }, 0)
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <TabBar active="search" setScreen={setScreen} />
@@ -134,293 +439,140 @@ export function CandidateCardScreen() {
   )
 }
 
-// ==================== CANDIDATE DETAIL / PROFILE ====================
-export function CandidateDetailScreen() {
-  const { state, setScreen } = useApp()
-  const candidate = state.matchedCandidate || mockCandidates[0]
 
-  return (
-    <div className="flex flex-col min-h-dvh">
-      <div className="flex-1 overflow-y-auto pb-28">
-        {/* Photo */}
-        <div className="relative h-[50vh]">
-          <Image
-            src={candidate.avatar}
-            alt={candidate.name}
-            fill
-            className="object-cover"
-          />
-          <button
-            onClick={() => setScreen("search-card")}
-            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          {/* Compat badge */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-            <div className="bg-[var(--green-primary)] text-white text-sm font-bold rounded-full px-4 py-1.5">
-              {candidate.compatibility}%
-            </div>
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="px-5 py-5">
-          <h2 className="text-2xl font-bold text-center mb-1">
-            {candidate.name}
-          </h2>
-          <p className="text-center text-gray-400 text-sm mb-6">
-            {candidate.age}{" лет \u00A0\u00A0 "}{candidate.city}
-          </p>
-
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm font-semibold mb-1">{candidate.goal}</p>
-              <p className="text-sm text-gray-500 leading-relaxed">
-                {candidate.goalDescription}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-1">Учится</p>
-              <p className="text-sm text-gray-500">
-                {candidate.course}{" "}{candidate.university}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* CTA */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto px-5 pb-8 pt-4 bg-white">
-        <button
-          onClick={() => setScreen("match-waiting")}
-          className="btn-green"
-        >
-          {"Выбираю "}{candidate.name.split(" ")[0]}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ==================== MATCH WAITING ====================
-export function MatchWaitingScreen() {
-  const { setScreen } = useApp()
-
-  return (
-    <div className="flex flex-col min-h-dvh items-center justify-center px-6 animate-bounce-in">
-      <Image
-        src="/mascot.png"
-        alt="mascot"
-        width={120}
-        height={120}
-        className="w-28 h-28 object-contain mb-6"
-      />
-      <h2 className="text-2xl font-bold text-center mb-3">Отлично!</h2>
-      <p className="text-gray-500 text-center text-sm leading-relaxed mb-8">
-        {"Как только бадди подтвердит мэтч,"}
-        <br />
-        {"вы начнете учиться вместе"}
-      </p>
-      <div className="flex gap-3 w-full">
-        <button
-          onClick={() => setScreen("main")}
-          className="btn-outline-gray flex-1"
-        >
-          На главную
-        </button>
-        <button
-          onClick={() => setScreen("match-success")}
-          className="btn-green flex-1"
-        >
-          Хорошо
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ==================== MATCH SUCCESS ====================
-export function MatchSuccessScreen() {
-  const { state, setScreen } = useApp()
-  const candidate = state.matchedCandidate || mockCandidates[0]
-
-  return (
-    <div className="flex flex-col min-h-dvh px-6 animate-bounce-in">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <p className="text-lg text-gray-400 mb-4">Нашлись</p>
-
-        <div className="relative mb-6">
-          <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-lg">
-            <Image
-              src={candidate.avatar}
-              alt={candidate.name}
-              width={128}
-              height={128}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        </div>
-
-        <h2 className="text-2xl font-bold text-center mb-2">Мэтч!</h2>
-        <p className="text-gray-500 text-center text-sm mb-8">
-          Теперь вы StudyBuddy друг друга
-        </p>
-
-        {/* Contacts */}
-        <div className="w-full space-y-3 mb-8">
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
-              <Image
-                src={candidate.avatar}
-                alt={candidate.name}
-                width={40}
-                height={40}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-gray-400">Telegram</p>
-              <p className="text-sm font-medium">{candidate.telegram}</p>
-            </div>
-            <button
-              className="text-gray-400 hover:text-black transition-colors"
-              onClick={() => {
-                navigator.clipboard.writeText(candidate.telegram)
-              }}
-              aria-label="Copy telegram handle"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="pb-8">
-        <button onClick={() => setScreen("main")} className="btn-green">
-          Готово
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ==================== LIKES SCREEN ====================
-export function LikesScreen() {
-  const { setScreen } = useApp()
-
-  return (
-    <div className="flex flex-col min-h-dvh">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-28">
-        <h1 className="text-2xl font-bold mb-2">Поиск Study Buddy</h1>
-
-        {/* Tags */}
-        <div className="flex items-center gap-2 mb-6">
-          <span className="text-sm underline">IELTS</span>
-          <span className="text-sm underline">ЕГЭ химия</span>
-          <button className="text-gray-400">
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Action buttons */}
-        <div className="space-y-4">
-          <button
-            onClick={() => setScreen("likes-candidates")}
-            className="btn-green text-left !text-sm"
-          >
-            Просмотр кандидатов
-          </button>
-          <p className="text-xs text-gray-400 px-1">
-            Посмотри подобранных для тебя кандидатов и найди своего бадди!
-          </p>
-
-          <button
-            onClick={() => setScreen("likes-candidates")}
-            className="btn-green text-left !text-sm"
-          >
-            Отобрали тебя
-          </button>
-          <p className="text-xs text-gray-400 px-1">
-            Посмотри кто выбрал тебя для совместного обучения!
-          </p>
-
-          <button
-            onClick={() => setScreen("likes-candidates")}
-            className="btn-green text-left !text-sm"
-          >
-            Отобрал ты
-          </button>
-          <p className="text-xs text-gray-400 px-1">
-            Посмотрите кого ты уже выбрал для совместного обучения!
-          </p>
-        </div>
-      </div>
-
-      <TabBar active="likes" setScreen={setScreen} />
-    </div>
-  )
-}
-
-// ==================== LIKES CANDIDATES LIST ====================
 export function LikesCandidatesScreen() {
-  const { setScreen, setState } = useApp()
+  const { state, setScreen, setState } = useApp()
 
-  return (
-    <div className="flex flex-col min-h-dvh">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-28">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setScreen("likes")} aria-label="Back">
+  const likedItems = useMemo(
+    () => state.candidates.filter((candidate) => state.likedCandidates.includes(candidate.id)),
+    [state.candidates, state.likedCandidates]
+  )
+
+  const currentLikedCandidate = likedItems[0] ?? null
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ index: number }>
+      const index = custom.detail?.index
+      if (typeof index === "number") {
+        setState((prev) => ({ ...prev, currentCandidateIndex: index }))
+      }
+    }
+    window.addEventListener("studybuddy-open-liked-candidate", handler)
+    return () => window.removeEventListener("studybuddy-open-liked-candidate", handler)
+  }, [setState])
+
+  const candidate =
+    state.candidates[state.currentCandidateIndex] ?? currentLikedCandidate
+
+  if (!candidate) {
+    return (
+      <div className="flex flex-col min-h-dvh px-6">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("likes")} className="p-1" aria-label="Back">
             <ChevronLeft className="w-6 h-6" />
           </button>
+          <span className="text-base font-semibold">Избранное</span>
+          <div className="w-8" />
         </div>
-        <h1 className="text-xl font-bold mb-1">Ждем ответа</h1>
-        <p className="text-lg font-semibold mb-5">IELTS</p>
-
-        {/* Candidates list */}
-        <div className="space-y-3">
-          {mockCandidates.map((c, index) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                setState((prev) => ({
-                  ...prev,
-                  matchedCandidate: c,
-                  currentCandidateIndex: index,
-                }))
-                setScreen("search-profile")
-              }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl bg-[var(--green-light)]"
-            >
-              <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
-                <Image
-                  src={c.avatar}
-                  alt={c.name}
-                  width={48}
-                  height={48}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex-1 text-left">
-                <p className="text-sm font-semibold">{c.name}</p>
-                <p className="text-xs text-gray-500">
-                  {c.age}{" лет, "}{c.city}
-                </p>
-              </div>
-              <span className="text-lg font-bold">{c.compatibility}%</span>
-            </button>
-          ))}
+        <div className="flex-1 flex items-center justify-center text-gray-500">
+          Нет выбранного профиля
         </div>
       </div>
+    )
+  }
 
-      <TabBar active="likes" setScreen={setScreen} />
+  return (
+    <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+      <div className="flex items-center justify-between h-14 mt-2">
+        <button onClick={() => setScreen("likes")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Избранное</span>
+        <div className="w-8" />
+      </div>
+      <div className="pt-4">
+        <CandidateCardView candidate={candidate} onOpen={() => setScreen("search-profile")} />
+      </div>
     </div>
+  )
+}
+
+function CandidateCardView({
+  candidate,
+  onOpen,
+}: {
+  candidate: Candidate
+  onOpen: () => void
+}) {
+  return (
+    <div className="rounded-3xl overflow-hidden shadow-sm border border-gray-100 bg-white">
+      <img
+        src={candidate.avatar}
+        alt={candidate.name}
+        className="w-full h-[420px] object-cover"
+      />
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold">{candidate.name}</h2>
+            <p className="text-sm text-gray-500">
+              {candidate.age} лет, {candidate.city || "город не указан"}
+            </p>
+          </div>
+          <div className="rounded-full bg-[var(--green-light)] px-3 py-1 text-sm font-semibold">
+            {candidate.compatibility}%
+          </div>
+        </div>
+        <div className="mt-4 space-y-2 text-sm text-gray-700">
+          <p>
+            <span className="font-medium">Учёба:</span> {candidate.university || "не указано"}
+          </p>
+          <p>
+            <span className="font-medium">Цель:</span> {candidate.goal || "не указано"}
+          </p>
+          <p className="text-gray-600">
+            {candidate.goalDescription || "Описание отсутствует"}
+          </p>
+        </div>
+        <button className="btn-outline-gray mt-5" onClick={onOpen}>
+          Открыть профиль
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MiniCandidateCard({
+  candidate,
+  onClick,
+}: {
+  candidate: Candidate
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm"
+    >
+      <div className="flex items-center gap-4">
+        <img
+          src={candidate.avatar}
+          alt={candidate.name}
+          className="w-16 h-16 rounded-2xl object-cover"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-semibold truncate">{candidate.name}</h3>
+            <span className="text-xs rounded-full bg-[var(--green-light)] px-2 py-1">
+              {candidate.compatibility}%
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 truncate">
+            {candidate.goal || "Цель не указана"}
+          </p>
+        </div>
+      </div>
+    </button>
   )
 }

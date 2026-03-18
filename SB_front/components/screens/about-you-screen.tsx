@@ -1,16 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { useApp } from "@/lib/app-context"
+import { useApp, type AppScreen } from "@/lib/app-context"
 import { ChevronLeft } from "lucide-react"
 import Image from "next/image"
 
 export default function AboutYouScreen() {
-  const { state, setScreen, updateUser } = useApp()
+  const { state, setScreen } = useApp()
   const step = state.screen
 
   if (step === "about-congrats") return <CongratsScreen />
-  if (step === "about-goal") return <GoalScreen />
+  if (step === "about-goal") return <GoalScreen backTo="about-congrats" nextTo="about-congrats2" />
+  if (step === "new-goal") return <GoalScreen backTo="search-intro" nextTo="survey2" />
   if (step === "about-congrats2") return <Congrats2Screen />
 
   return <AboutFormSteps />
@@ -21,13 +22,11 @@ function AboutFormSteps() {
   const step = state.screen as "about-step1" | "about-step2" | "about-step3"
   const user = state.user
 
-  const stepNum = step === "about-step1" ? 1 : step === "about-step2" ? 2 : 3
   const prevScreen =
     step === "about-step1" ? "auth" : step === "about-step2" ? "about-step1" : "about-step2"
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
-      {/* Header */}
       <div className="flex items-center justify-between h-14 mt-2">
         <button onClick={() => setScreen(prevScreen)} className="p-1" aria-label="Back">
           <ChevronLeft className="w-6 h-6" />
@@ -36,14 +35,12 @@ function AboutFormSteps() {
         <div className="w-8" />
       </div>
 
-      {/* Mascot */}
       <div className="flex justify-center my-4">
         <div className="w-16 h-16 relative">
           <Image src="/mascot.png" alt="Mascot" fill className="object-contain" />
         </div>
       </div>
 
-      {/* Step 1: Name + City */}
       {step === "about-step1" && (
         <div className="flex-1 flex flex-col animate-slide-in-right">
           <h2 className="text-2xl font-bold text-center mb-2">Привет</h2>
@@ -104,7 +101,6 @@ function AboutFormSteps() {
         </div>
       )}
 
-      {/* Step 2: University */}
       {step === "about-step2" && (
         <div className="flex-1 flex flex-col animate-slide-in-right">
           <h2 className="text-2xl font-bold text-center mb-2">Привет</h2>
@@ -157,7 +153,6 @@ function AboutFormSteps() {
         </div>
       )}
 
-      {/* Step 3: Messenger */}
       {step === "about-step3" && (
         <div className="flex-1 flex flex-col animate-slide-in-right">
           <h2 className="text-2xl font-bold text-center mb-2">Тг или вк?</h2>
@@ -248,26 +243,36 @@ function CongratsScreen() {
         </p>
       </div>
       <div className="w-full pb-8 flex gap-3">
-        <button className="btn-outline-gray flex-1">Позже</button>
-        <button className="btn-green flex-1" onClick={() => setScreen("about-goal")}>
-          Далее
-        </button>
+        <button className="btn-outline-gray flex-1" onClick={() => setScreen("main")}>Позже</button>
+        <button className="btn-green flex-1" onClick={() => setScreen("about-goal")}>Далее</button>
       </div>
     </div>
   )
 }
 
-function GoalScreen() {
+function GoalScreen({ backTo, nextTo }: { backTo: AppScreen; nextTo: AppScreen }) {
   const { setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
 
-  const goalOptions = ["IELTS", "ЕГЭ Химия", "ЕГЭ Математика", "Программирование", "Дизайн"]
+  const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
+
+  const handleNext = () => {
+    if (goalName) {
+      addStudyGoal({
+        id: Date.now().toString(),
+        name: goalName,
+        description: goalDesc,
+        startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
+      })
+    }
+    setScreen(nextTo)
+  }
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
       <div className="flex items-center justify-between h-14 mt-2">
-        <button onClick={() => setScreen("about-congrats")} className="p-1" aria-label="Back">
+        <button onClick={() => setScreen(backTo)} className="p-1" aria-label="Back">
           <ChevronLeft className="w-6 h-6" />
         </button>
         <span className="text-base font-semibold">Анкета о тебе</span>
@@ -305,23 +310,10 @@ function GoalScreen() {
         </div>
 
         <div className="mt-auto pb-8 flex gap-3">
-          <button className="btn-outline-gray flex-1" onClick={() => setScreen("about-congrats2")}>
+          <button className="btn-outline-gray flex-1" onClick={() => setScreen(nextTo)}>
             Позже
           </button>
-          <button
-            className="btn-green flex-1"
-            onClick={() => {
-              if (goalName) {
-                addStudyGoal({
-                  id: Date.now().toString(),
-                  name: goalName,
-                  description: goalDesc,
-                  startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
-                })
-              }
-              setScreen("about-congrats2")
-            }}
-          >
+          <button className="btn-green flex-1" onClick={handleNext}>
             Далее
           </button>
         </div>
