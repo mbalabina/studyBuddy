@@ -112,7 +112,7 @@ export function getSessionCookieOptions(req: Request) {
   return {
     httpOnly: true,
     secure: isSecure,
-    sameSite: "lax" as const,
+    sameSite: isSecure ? ("none" as const) : ("lax" as const),
     path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
