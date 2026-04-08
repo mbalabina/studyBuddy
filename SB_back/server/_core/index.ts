@@ -34,7 +34,7 @@ async function startServer() {
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", 
       process.env.NODE_ENV === "production" 
-        ? "https://study-buddy-*.vercel.app" 
+        ? process.env.FRONTEND_URL 
         : "http://localhost:3001"
     );
 
