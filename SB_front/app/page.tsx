@@ -1,6 +1,7 @@
 "use client"
 
-import { AppProvider, useApp } from "@/lib/app-context"
+import { useApp } from "@/lib/app-context"
+// (убираем импорт AppProvider — он уже в layout.tsx)
 import SplashScreen from "@/components/screens/splash-screen"
 import AuthScreen from "@/components/screens/auth-screen"
 import AboutYouScreen from "@/components/screens/about-you-screen"
@@ -30,11 +31,9 @@ function AppContent() {
     case "about-step3":
     case "about-congrats":
     case "about-goal":
-    case "new-goal":        // ← добавь эту строку
+    case "new-goal":
     case "about-congrats2":
-  return <AboutYouScreen />
-
-      return <AboutYouScreen />
+      return <AboutYouScreen />   // ← только один return (был дублирующийся)
     case "survey1":
       return <Survey1Screen />
     case "survey2":
@@ -62,11 +61,10 @@ function AppContent() {
 }
 
 export default function Page() {
+  // AppProvider убран — он уже есть в layout.tsx и персистентен между роутами
   return (
-    <AppProvider>
-      <div className="mx-auto max-w-[430px] min-h-dvh bg-white relative overflow-hidden shadow-2xl">
-        <AppContent />
-      </div>
-    </AppProvider>
+    <div className="mx-auto max-w-[430px] min-h-dvh bg-white relative overflow-hidden shadow-2xl">
+      <AppContent />
+    </div>
   )
 }
