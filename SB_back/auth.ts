@@ -83,6 +83,12 @@ export async function verifyToken(token: string): Promise<SessionPayload | null>
 }
 
 export function getTokenFromRequest(req: Request): string | null {
+  // Сначала пробуем Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+  // Затем cookies
   const cookies = parseCookie(req.headers.cookie || "");
   return cookies[COOKIE_NAME] || null;
 }

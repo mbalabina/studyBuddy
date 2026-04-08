@@ -1,8 +1,10 @@
 "use client"
 
+
 import type React from "react"
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
 import { authAPI, matchingAPI, favoritesAPI, profileAPI } from "./api"
+
 
 // ========== TYPES ==========
 export type AppScreen =
@@ -14,7 +16,7 @@ export type AppScreen =
   | "about-step3"
   | "about-congrats"
   | "about-goal"
-  | "new-goal"        
+  | "new-goal"
   | "about-congrats2"
   | "survey1"
   | "survey2"
@@ -53,7 +55,12 @@ export interface UserProfile {
   partnerLevel: string
   importantTraits: string[]
   partnerLearningStyle: string[]
+  avatarUrl: string
+  learningFormat: string
+  communicationStyle: string
+  bio: string
 }
+
 
 export interface StudyGoal {
   id: string
@@ -61,6 +68,7 @@ export interface StudyGoal {
   description: string
   startDate: string
 }
+
 
 export interface Candidate {
   id: number
@@ -77,6 +85,7 @@ export interface Candidate {
   isFavorite?: boolean
 }
 
+
 interface AppState {
   screen: AppScreen
   user: UserProfile
@@ -92,6 +101,7 @@ interface AppState {
   apiError: string | null
 }
 
+
 interface AppContextType {
   state: AppState
   setScreen: (screen: AppScreen) => void
@@ -105,9 +115,11 @@ interface AppContextType {
   register: (email: string, password: string, telegram?: string) => Promise<void>
   logout: () => Promise<void>
   loadCandidates: () => Promise<void>
+  loadProfile: () => Promise<void>
   saveProfile: () => Promise<void>
   savePreferences: () => Promise<void>
 }
+
 
 const defaultUser: UserProfile = {
   firstName: "",
@@ -133,15 +145,22 @@ const defaultUser: UserProfile = {
   partnerLevel: "",
   importantTraits: [],
   partnerLearningStyle: [],
+  avatarUrl: "",
+  learningFormat: "",
+  communicationStyle: "",
+  bio: "",
 }
 
+
 const AppContext = createContext<AppContextType | null>(null)
+
 
 export function useApp() {
   const ctx = useContext(AppContext)
   if (!ctx) throw new Error("useApp must be inside AppProvider")
   return ctx
 }
+
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>({
@@ -159,9 +178,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     apiError: null,
   })
 
-  // Используем ref чтобы иметь доступ к актуальному state внутри колбэков
+
   const stateRef = useRef(state)
   stateRef.current = state
+
 
   // ========== ЗАГРУЗКА КАНДИДАТОВ ==========
   const loadCandidates = useCallback(async () => {
@@ -181,10 +201,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+
+  // ========== ЗАГРУЗКА ПРОФИЛЯ ==========
+  const loadProfile = useCallback(async () => {
+    try {
+      const data = await profileAPI.getMe() as any
+      const profile = data?.profile
+      if (!profile) return
+
+
+      const goals: StudyGoal[] = profile.studyGoal
+        ? [{ id: "1", name: profile.studyGoal, description: profile.bio || "", startDate: "" }]
+        : []
+
+
+      setState((prev) => ({
+        ...prev,
+        user: {
+          ...prev.user,
+          firstName: profile.firstName || "",
+          lastName: profile.lastName || "",
+          city: profile.city || "",
+          knowledgeLevel: profile.proficiencyLevel || "",
+          preferredTime: Array.isArray(profile.schedule) ? profile.schedule : [],
+          studyGoals: goals,
+          bio: profile.bio || "",
+          avatarUrl: profile.avatarUrl || "",
+          learningFormat: profile.learningFormat || "",
+          communicationStyle: profile.communicationStyle || "",
+        },
+      }))
+    } catch (e) {
+      console.error("Failed to load profile", e)
+    }
+  }, [])
+
+
   // При старте — проверяем сессию
   useEffect(() => {
     const checkSession = async () => {
       try {
+        const token = localStorage.getItem("auth_token")
+        if (!token) {
+          setState((prev) => ({ ...prev, screen: "auth" }))
+          return
+        }
         const me = await authAPI.getMe()
         if (me && (me as { id?: number }).id) {
           const user = me as { id: number; email: string }
@@ -195,27 +256,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             authEmail: user.email,
             screen: "main",
           }))
-          await loadCandidates()
+          await Promise.all([loadCandidates(), loadProfile()])
         } else {
+          localStorage.removeItem("auth_token")
           setState((prev) => ({ ...prev, screen: "auth" }))
         }
       } catch {
+        localStorage.removeItem("auth_token")
         setState((prev) => ({ ...prev, screen: "auth" }))
       }
     }
 
+
     const timer = setTimeout(checkSession, 1500)
     return () => clearTimeout(timer)
-  }, [loadCandidates])
+  }, [loadCandidates, loadProfile])
+
 
   // ========== БАЗОВЫЕ ФУНКЦИИ ==========
   const setScreen = useCallback((screen: AppScreen) => {
     setState((prev) => ({ ...prev, screen }))
   }, [])
 
+
   const updateUser = useCallback((updates: Partial<UserProfile>) => {
     setState((prev) => ({ ...prev, user: { ...prev.user, ...updates } }))
   }, [])
+
 
   const addStudyGoal = useCallback((goal: StudyGoal) => {
     setState((prev) => ({
@@ -224,21 +291,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+
   const likeCurrent = useCallback(() => {
     const current = stateRef.current
     const candidate = current.candidates[current.currentCandidateIndex]
     if (!candidate) return
 
-    // Сначала обновляем UI
+
     setState((prev) => ({
       ...prev,
       likedCandidates: [...prev.likedCandidates, candidate.id],
       currentCandidateIndex: prev.currentCandidateIndex + 1,
     }))
 
-    // Потом отправляем в бэк
+
     favoritesAPI.like(candidate.id).catch(console.error)
   }, [])
+
 
   const rejectCurrent = useCallback(() => {
     setState((prev) => ({
@@ -247,6 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+
   const nextCandidate = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -254,10 +324,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+
   // ========== AUTH ==========
   const login = useCallback(async (email: string, password: string) => {
-    const result = await authAPI.login(email, password) as { user?: { id: number; email: string } }
+    const result = await authAPI.login(email, password) as { user?: { id: number; email: string }; token?: string }
     const user = result?.user ?? (result as { id?: number; email?: string })
+    if (result?.token) localStorage.setItem("auth_token", result.token)
     setState((prev) => ({
       ...prev,
       isLoggedIn: true,
@@ -265,12 +337,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       authEmail: (user as { email?: string })?.email ?? email,
       apiError: null,
     }))
-    await loadCandidates()
-  }, [loadCandidates])
+    await Promise.all([loadCandidates(), loadProfile()])
+  }, [loadCandidates, loadProfile])
+
 
   const register = useCallback(async (email: string, password: string, telegram?: string) => {
-    const result = await authAPI.register(email, password, telegram) as { user?: { id: number; email: string } }
+    const result = await authAPI.register(email, password, telegram) as { user?: { id: number; email: string }; token?: string }
     const user = result?.user ?? (result as { id?: number; email?: string })
+    if (result?.token) localStorage.setItem("auth_token", result.token)
     setState((prev) => ({
       ...prev,
       isLoggedIn: true,
@@ -280,12 +354,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+
   const logout = useCallback(async () => {
     try {
       await authAPI.logout()
     } catch {
       // не страшно
     }
+    localStorage.removeItem("auth_token")
     setState((prev) => ({
       ...prev,
       isLoggedIn: false,
@@ -297,6 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+
   // ========== СОХРАНЕНИЕ ПРОФИЛЯ ==========
   const saveProfile = useCallback(async () => {
     const u = stateRef.current.user
@@ -307,8 +384,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       studyGoal: u.studyGoals[0]?.name ?? "",
       proficiencyLevel: u.knowledgeLevel,
       schedule: u.preferredTime,
+      bio: u.bio,
+      avatarUrl: u.avatarUrl,
     })
   }, [])
+
 
   const savePreferences = useCallback(async () => {
     const u = stateRef.current.user
@@ -316,8 +396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       preferredLevel: u.partnerLevel,
       preferredSchedule: u.preferredTime,
       city: u.city,
+      learningFormat: u.learningFormat,
+      communicationStyle: u.communicationStyle,
     })
   }, [])
+
 
   return (
     <AppContext.Provider
@@ -334,6 +417,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         loadCandidates,
+        loadProfile,
         saveProfile,
         savePreferences,
       }}

@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import { AppProvider } from "@/lib/app-context"
 
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
@@ -11,7 +12,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Study Buddy",
   description: "Найди идеального напарника для совместного обучения",
-    generator: 'v0.app'
+  generator: "v0.app",
 }
 
 export const viewport: Viewport = {
@@ -30,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+        <AppProvider>{children}</AppProvider>
       </body>
     </html>
   )

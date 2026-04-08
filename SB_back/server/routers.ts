@@ -14,73 +14,91 @@ function normalizeStringArray(value: JsonArrayValue): string[] {
   return [];
 }
 
+/**
+ * Алгоритм совместимости двух пользователей.
+ *
+ * Веса (итого 100 баллов):
+ *   35 — схожесть учебных целей (оценивает Groq AI)
+ *   25 — совпадение формата обучения (Online / Offline / Both)
+ *   15 — общие предметы
+ *   10 — совпадение расписания
+ *   10 — совпадение уровня языка
+ *    3 — стиль общения
+ *    2 — город
+ */
 function calculateCompatibility(
   user1Profile: any,
   user1Prefs: any,
   user2Profile: any,
-  goalSimilarity: number = 0.5
+  goalSimilarity: number = 0.5,
 ): number {
   let score = 0;
   let maxScore = 0;
 
-  if (user1Prefs?.minAge && user1Prefs?.maxAge) {
-    maxScore += 20;
-    const age = user2Profile?.age || 0;
-    if (age >= user1Prefs.minAge && age <= user1Prefs.maxAge) {
-      score += 20;
-    }
-  }
-
-  if (user1Prefs?.preferredLevel && user2Profile?.proficiencyLevel) {
-    maxScore += 15;
-    if (
-      user1Prefs.preferredLevel === user2Profile.proficiencyLevel ||
-      user1Prefs.preferredLevel === "Any"
-    ) {
-      score += 15;
-    }
-  }
-
-  if (user1Prefs?.preferredSchedule && user2Profile?.schedule) {
-    maxScore += 15;
-    const user2Schedule = normalizeStringArray(user2Profile.schedule);
-    const commonSchedule = normalizeStringArray(user1Prefs.preferredSchedule).filter((item) =>
-      user2Schedule.includes(item),
-    );
-    if (commonSchedule.length > 0) {
-      score += 15;
-    }
-  }
-
-  if (user1Prefs?.learningFormat) {
-    maxScore += 10;
-    score += 10;
-  }
-
-  if (user1Prefs?.communicationStyle) {
-    maxScore += 10;
-    score += 10;
-  }
-
+  // ── 1. Схожесть учебных целей (35 баллов) ────────────────────────
   if (user1Profile?.studyGoal || user2Profile?.studyGoal) {
-    maxScore += 10;
-    score += Math.round(goalSimilarity * 10);
+    maxScore += 35;
+    score += Math.round(goalSimilarity * 35);
   }
 
+  // ── 2. Формат обучения (25 баллов) ───────────────────────────────
+  // Сравниваем реальные значения, а не просто факт наличия поля
+  if (user1Prefs?.learningFormat && user2Profile?.learningFormat) {
+    maxScore += 25;
+    if (
+      user1Prefs.learningFormat === user2Profile.learningFormat ||
+      user1Prefs.learningFormat === "Both" ||
+      user2Profile.learningFormat === "Both"
+    ) {
+      score += 25;
+    }
+  }
+
+  // ── 3. Общие предметы (15 баллов) ────────────────────────────────
   if (user1Profile?.subjects && user2Profile?.subjects) {
     maxScore += 15;
     const commonSubjects = normalizeStringArray(user1Profile.subjects).filter((item) =>
       normalizeStringArray(user2Profile.subjects).includes(item),
     );
-    if (commonSubjects.length > 0) {
-      score += Math.min(15, commonSubjects.length * 5);
+    score += Math.min(15, commonSubjects.length * 5);
+  }
+
+  // ── 4. Совпадение расписания (10 баллов) ─────────────────────────
+  if (user1Prefs?.preferredSchedule && user2Profile?.schedule) {
+    maxScore += 10;
+    const commonSlots = normalizeStringArray(user1Prefs.preferredSchedule).filter((item) =>
+      normalizeStringArray(user2Profile.schedule).includes(item),
+    );
+    if (commonSlots.length > 0) {
+      score += 10;
     }
   }
 
+  // ── 5. Уровень языка (10 баллов) ─────────────────────────────────
+  if (user1Prefs?.preferredLevel && user2Profile?.proficiencyLevel) {
+    maxScore += 10;
+    if (
+      user1Prefs.preferredLevel === user2Profile.proficiencyLevel ||
+      user1Prefs.preferredLevel === "Any"
+    ) {
+      score += 10;
+    }
+  }
+
+  // ── 6. Стиль общения (3 балла) ────────────────────────────────────
+  // Сравниваем реальные значения кандидата
+  if (user1Prefs?.communicationStyle && user2Profile?.communicationStyle) {
+    maxScore += 3;
+    if (user1Prefs.communicationStyle === user2Profile.communicationStyle) {
+      score += 3;
+    }
+  }
+
+  // ── 7. Город (2 балла) ────────────────────────────────────────────
   if (user1Prefs?.city && user2Profile?.city) {
-    maxScore += 5;
-    if (user1Prefs.city === user2Profile.city) {
-      score += 5;
+    maxScore += 2;
+    if (user1Prefs.city.toLowerCase() === user2Profile.city.toLowerCase()) {
+      score += 2;
     }
   }
 
@@ -117,9 +135,10 @@ function buildCandidateCard(params: {
     subjects: normalizeStringArray(profile?.subjects),
     schedule: normalizeStringArray(profile?.schedule),
     experience: profile?.experience || "",
+    learningFormat: profile?.learningFormat || "",
+    communicationStyle: profile?.communicationStyle || "",
     telegram: user.telegramUsername || "",
-    avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=500&fit=crop&crop=face",
+    avatar: profile?.avatarUrl || "",
     isFavorite,
   };
 }
@@ -256,35 +275,44 @@ export const appRouter: any = router({
       };
     }),
 
-    updateAboutMe: protectedProcedure
-      .input(
-        z.object({
-          firstName: z.string().optional(),
-          lastName: z.string().optional(),
-          age: z.number().optional(),
-          city: z.string().optional(),
-          studyGoal: z.string().optional(),
+      updateAboutMe: protectedProcedure
+        .input(z.object({
+          firstName:        z.string().optional(),
+          lastName:         z.string().optional(),
+          age:              z.number().optional(),
+          city:             z.string().optional(),
+          studyGoal:        z.string().optional(),
           proficiencyLevel: z.string().optional(),
-          subjects: z.array(z.string()).optional(),
-          schedule: z.array(z.string()).optional(),
-          bio: z.string().optional(),
-          experience: z.string().optional(),
+          subjects:         z.array(z.string()).optional(),
+          schedule:         z.array(z.string()).optional(),
+          bio:              z.string().optional(),
+          experience:       z.string().optional(),
+          // Новые поля
+          avatarUrl:        z.string().optional(),
+          university:       z.string().optional(),
+          program:          z.string().optional(),
+          course:           z.string().optional(),
+          messengerHandle:  z.string().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+          return await db.upsertProfile(ctx.user!.userId, {
+            firstName:        input.firstName,
+            lastName:         input.lastName,
+            age:              input.age,
+            city:             input.city,
+            studyGoal:        input.studyGoal,
+            proficiencyLevel: input.proficiencyLevel,
+            subjects:         input.subjects ?? [],
+            schedule:         input.schedule ?? [],
+            bio:              input.bio,
+            experience:       input.experience,
+            avatarUrl:        input.avatarUrl,
+            university:       input.university,
+            program:          input.program,
+            course:           input.course,
+            messengerHandle:  input.messengerHandle,
+          })
         }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        return await db.upsertProfile(ctx.user!.userId, {
-          firstName: input.firstName,
-          lastName: input.lastName,
-          age: input.age,
-          city: input.city,
-          studyGoal: input.studyGoal,
-          proficiencyLevel: input.proficiencyLevel,
-          subjects: input.subjects ?? [],
-          schedule: input.schedule ?? [],
-          bio: input.bio,
-          experience: input.experience,
-        });
-      }),
 
     updatePartnerPreferences: protectedProcedure
       .input(
@@ -389,17 +417,13 @@ export const appRouter: any = router({
           return true;
         });
 
-      // ✅ Запрашиваем Groq для всех кандидатов параллельно
+      // Запрашиваем Groq для всех кандидатов параллельно (кэш в groq.ts предотвращает дубли)
       const items = (
         await Promise.all(
           filtered.map(async ({ user, profile }) => {
-            const goalSimilarity =
-              profile?.studyGoal
-                ? await compareGoals(
-                    currentProfile?.studyGoal || "",
-                    profile.studyGoal,
-                  )
-                : 0.5;
+            const goalSimilarity = profile?.studyGoal
+              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
+              : 0.5;
 
             const compatibility = profile
               ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
@@ -442,7 +466,6 @@ export const appRouter: any = router({
       )
       .query(async ({ input, ctx }) => {
         const result = await (appRouter as any).createCaller(ctx).search.users({
-
           limit: input.limit,
           offset: input.offset,
           onlyCompleteProfiles: true,
@@ -501,47 +524,89 @@ export const appRouter: any = router({
     unlike: protectedProcedure
       .input(z.object({ candidateId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const success = await db.removeFavorite(ctx.user!.userId, input.candidateId);
-        return { success };
+        await db.removeFavorite(ctx.user!.userId, input.candidateId);
+        return { success: true };
       }),
 
-    getMyFavorites: protectedProcedure.query(async ({ ctx }) => {
-      const favoriteIds = await db.getUserFavorites(ctx.user!.userId);
-      const favorites = await Promise.all(
-        favoriteIds.map(async (id) => {
-          const [user, profile] = await Promise.all([db.getUserById(id), db.getProfile(id)]);
-          return buildCandidateCard({
-            user,
-            profile,
-            compatibility: 0,
-            isFavorite: true,
-          });
-        }),
+    getList: protectedProcedure.query(async ({ ctx }) => {
+      const currentUserId = ctx.user!.userId;
+
+      const [favoriteIds, allUsers, allProfiles, currentProfile, currentPreferences] =
+        await Promise.all([
+          db.getUserFavorites(currentUserId),
+          db.getAllUsers(),
+          db.getAllProfiles(),
+          db.getProfile(currentUserId),
+          db.getPreferences(currentUserId),
+        ]);
+
+      if (favoriteIds.length === 0) return [];
+
+      const favSet = new Set(favoriteIds);
+      const profileMap = new Map(allProfiles.map((p) => [p.userId, p]));
+
+      const items = await Promise.all(
+        allUsers
+          .filter((u) => favSet.has(u.id))
+          .map(async (user) => {
+            const profile = profileMap.get(user.id) ?? null;
+            const goalSimilarity = profile?.studyGoal
+              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
+              : 0.5;
+            const compatibility = profile
+              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+              : 0;
+            return buildCandidateCard({ user, profile, compatibility, isFavorite: true });
+          }),
       );
 
-      return favorites.filter((item): item is NonNullable<typeof item> => Boolean(item));
+      return items.filter((item): item is NonNullable<typeof item> => Boolean(item));
     }),
 
     getAdmirers: protectedProcedure.query(async ({ ctx }) => {
-      const admirers = await db.getUserAdmirers(ctx.user!.userId);
-      const admirerCards = await Promise.all(
-        admirers.map(async (user) => {
-          const profile = await db.getProfile(user.id);
-          return buildCandidateCard({
-            user,
-            profile,
-            compatibility: 0,
-            isFavorite: await db.isFavorite(ctx.user!.userId, user.id),
-          });
-        }),
+      const currentUserId = ctx.user!.userId;
+
+      const [admirerIds, allUsers, allProfiles, currentProfile, currentPreferences] =
+        await Promise.all([
+          db.getUserAdmirers(currentUserId),
+          db.getAllUsers(),
+          db.getAllProfiles(),
+          db.getProfile(currentUserId),
+          db.getPreferences(currentUserId),
+        ]);
+
+      if (admirerIds.length === 0) return [];
+
+      const admireSet = new Set(admirerIds.map((item) => item.id));
+      const profileMap = new Map(allProfiles.map((p) => [p.userId, p]));
+      const myFavorites = new Set(await db.getUserFavorites(currentUserId));
+
+      const items = await Promise.all(
+        allUsers
+          .filter((u) => admireSet.has(u.id))
+          .map(async (user) => {
+            const profile = profileMap.get(user.id) ?? null;
+            const goalSimilarity = profile?.studyGoal
+              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
+              : 0.5;
+            const compatibility = profile
+              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+              : 0;
+            return buildCandidateCard({
+              user,
+              profile,
+              compatibility,
+              isFavorite: myFavorites.has(user.id),
+            });
+          }),
       );
 
-      return admirerCards.filter((item): item is NonNullable<typeof item> => Boolean(item));
+      return items.filter((item): item is NonNullable<typeof item> => Boolean(item));
     }),
   }),
 
   admin: router({
-    getAllUsers: protectedProcedure.query(async ({ ctx }) => {
+    getUsers: protectedProcedure.query(async ({ ctx }) => {
       const user = await db.getUserById(ctx.user!.userId);
       if (user?.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
