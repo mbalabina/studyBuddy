@@ -181,9 +181,6 @@ export default function ProfilePage() {
               <Field label="Курс"        value={form.course}    onChange={set("course")} />
             </Section>
 
-            <Section title="Цель обучения">
-              <Field label="Цель" value={form.studyGoal} onChange={set("studyGoal")} />
-            </Section>
 
             <Section title="Контакты">
               <Field label="Telegram / ВКонтакте" value={form.messengerHandle} onChange={set("messengerHandle")} />
