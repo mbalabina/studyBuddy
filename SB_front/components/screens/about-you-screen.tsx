@@ -11,7 +11,7 @@ export default function AboutYouScreen() {
 
   if (step === "about-congrats") return <CongratsScreen />
   if (step === "about-goal") return <GoalScreen backTo="about-congrats" nextTo="about-congrats2" />
-  if (step === "new-goal") return <GoalScreen backTo="search-intro" nextTo="survey2" />
+  if (step === "new-goal") return <GoalScreen backTo="main" nextTo="main" />
   if (step === "about-congrats2") return <Congrats2Screen />
 
   return <AboutFormSteps />
@@ -21,6 +21,7 @@ function AboutFormSteps() {
   const { state, setScreen, updateUser } = useApp()
   const step = state.screen as "about-step1" | "about-step2" | "about-step3"
   const user = state.user
+  const isPupil = user.role === "pupil"
 
   const prevScreen =
     step === "about-step1" ? "auth" : step === "about-step2" ? "about-step1" : "about-step2"
@@ -70,19 +71,28 @@ function AboutFormSteps() {
               onChange={(e) => updateUser({ city: e.target.value })}
               className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
             />
+            <input
+              type="number"
+              min="7"
+              max="100"
+              placeholder="Возраст"
+              value={user.age ?? ""}
+              onChange={(e) => updateUser({ age: e.target.value ? Number(e.target.value) : null })}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
+            />
           </div>
 
           <div className="mt-6">
             <div className="toggle-pill">
               <button
                 className={user.role === "student" ? "active" : ""}
-                onClick={() => updateUser({ role: "student" })}
+                onClick={() => updateUser({ role: "student", course: user.course.includes("класс") ? "1 курс" : user.course })}
               >
                 Я студент
               </button>
               <button
                 className={user.role === "pupil" ? "active" : ""}
-                onClick={() => updateUser({ role: "pupil" })}
+                onClick={() => updateUser({ role: "pupil", course: user.course.includes("курс") ? "7 класс" : user.course })}
               >
                 Я ученик
               </button>
@@ -112,13 +122,13 @@ function AboutFormSteps() {
             <div className="toggle-pill mb-4">
               <button
                 className={user.role === "student" ? "active" : ""}
-                onClick={() => updateUser({ role: "student" })}
+                onClick={() => updateUser({ role: "student", course: user.course.includes("класс") ? "1 курс" : user.course })}
               >
                 Я студент
               </button>
               <button
                 className={user.role === "pupil" ? "active" : ""}
-                onClick={() => updateUser({ role: "pupil" })}
+                onClick={() => updateUser({ role: "pupil", course: user.course.includes("курс") ? "7 класс" : user.course })}
               >
                 Я ученик
               </button>
@@ -126,20 +136,21 @@ function AboutFormSteps() {
 
             <input
               type="text"
-              placeholder="Название университета"
+              placeholder={isPupil ? "Название школы" : "Название университета"}
               value={user.university}
               onChange={(e) => updateUser({ university: e.target.value })}
               className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
             />
             <input
               type="text"
-              placeholder="Программа обучения"
+              placeholder={isPupil ? "Профиль обучения" : "Программа обучения"}
               value={user.program}
               onChange={(e) => updateUser({ program: e.target.value })}
               className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
             />
 
             <CourseSelector
+              role={user.role}
               value={user.course}
               onChange={(course) => updateUser({ course })}
             />
@@ -198,17 +209,31 @@ function AboutFormSteps() {
   )
 }
 
-function CourseSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function CourseSelector({
+  role,
+  value,
+  onChange,
+}: {
+  role: "student" | "pupil"
+  value: string
+  onChange: (v: string) => void
+}) {
   const [open, setOpen] = useState(false)
-  const courses = ["1 курс", "2 курс", "3 курс", "4 курс", "5 курс"]
+  const courses =
+    role === "pupil"
+      ? ["7 класс", "8 класс", "9 класс", "10 класс", "11 класс"]
+      : ["1 курс", "2 курс", "3 курс", "4 курс", "5 курс"]
 
   return (
     <div className="relative">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="flex items-center justify-between w-full py-3 border-b border-gray-200 text-base"
       >
-        <span className={value ? "text-black" : "text-gray-400"}>{value || "Курс"}</span>
+        <span className={value ? "text-black" : "text-gray-400"}>
+          {value || (role === "pupil" ? "Класс" : "Курс")}
+        </span>
         <ChevronLeft className="w-4 h-4 -rotate-90 text-gray-400" />
       </button>
       {open && (
@@ -216,6 +241,7 @@ function CourseSelector({ value, onChange }: { value: string; onChange: (v: stri
           {courses.map((c) => (
             <button
               key={c}
+              type="button"
               onClick={() => { onChange(c); setOpen(false) }}
               className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors ${value === c ? "bg-[var(--green-light)] font-semibold" : ""}`}
             >
@@ -251,20 +277,37 @@ function CongratsScreen() {
 }
 
 function GoalScreen({ backTo, nextTo }: { backTo: AppScreen; nextTo: AppScreen }) {
-  const { setScreen, addStudyGoal } = useApp()
+  const { state, setScreen, addStudyGoal, saveProfile, loadProfile, loadCandidates } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
+  const [saving, setSaving] = useState(false)
 
   const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (goalName) {
-      addStudyGoal({
+      const goal = {
         id: Date.now().toString(),
         name: goalName,
         description: goalDesc,
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
-      })
+      }
+
+      addStudyGoal(goal)
+
+      if (nextTo === "main") {
+        setSaving(true)
+        try {
+          const updatedGoals = [...state.user.studyGoals, goal]
+          await saveProfile({
+            studyGoals: updatedGoals,
+            bio: goal.description || state.user.bio,
+          })
+          await Promise.all([loadProfile(), loadCandidates()])
+        } finally {
+          setSaving(false)
+        }
+      }
     }
     setScreen(nextTo)
   }
@@ -313,8 +356,8 @@ function GoalScreen({ backTo, nextTo }: { backTo: AppScreen; nextTo: AppScreen }
           <button className="btn-outline-gray flex-1" onClick={() => setScreen(nextTo)}>
             Позже
           </button>
-          <button className="btn-green flex-1" onClick={handleNext}>
-            Далее
+          <button className="btn-green flex-1" onClick={() => void handleNext()} disabled={saving}>
+            {saving ? "Сохраняем..." : "Далее"}
           </button>
         </div>
       </div>

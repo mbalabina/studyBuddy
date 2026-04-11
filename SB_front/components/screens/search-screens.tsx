@@ -2,12 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useApp, type Candidate } from "@/lib/app-context"
+import { favoritesAPI } from "@/lib/api"
 import { ChevronLeft, Heart, X, MessageCircle, MapPin, GraduationCap } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
 
 
 export default function SearchIntroScreen() {
-  const { state, setScreen, loadCandidates, addStudyGoal } = useApp()
+  const {
+    state,
+    setScreen,
+    loadCandidates,
+    loadFavoriteCandidates,
+    loadAdmirerCandidates,
+    addStudyGoal,
+  } = useApp()
   const [showModal, setShowModal] = useState(false)
   const [newGoalName, setNewGoalName] = useState("")
   const [newGoalDesc, setNewGoalDesc] = useState("")
@@ -15,8 +23,10 @@ export default function SearchIntroScreen() {
   useEffect(() => {
     if (state.isLoggedIn) {
       loadCandidates().catch(console.error)
+      loadFavoriteCandidates().catch(console.error)
+      loadAdmirerCandidates().catch(console.error)
     }
-  }, [state.isLoggedIn, loadCandidates])
+  }, [state.isLoggedIn, loadAdmirerCandidates, loadCandidates, loadFavoriteCandidates])
 
   const handleAddGoal = () => {
     if (!newGoalName.trim()) return
@@ -54,7 +64,7 @@ export default function SearchIntroScreen() {
         ))}
 
         <button
-        onClick={() => setScreen("about-goal")}
+        onClick={() => setScreen("new-goal")}
         className="px-3 py-1.5 rounded-full border border-gray-300 text-sm text-gray-400 whitespace-nowrap"
         >
           +
@@ -83,7 +93,7 @@ export default function SearchIntroScreen() {
 
         <button
           className="w-full bg-[var(--green-light)] rounded-3xl p-5 text-left"
-          onClick={() => setScreen("likes")}
+          onClick={() => setScreen("admirers")}
         >
           <p className="text-lg font-bold mb-1">Отобрали тебя</p>
           <p className="text-sm text-gray-600">
@@ -102,7 +112,7 @@ export default function SearchIntroScreen() {
         </button>
       </div>
 
-      <TabBar active="likes" setScreen={setScreen} />
+      <TabBar active="search" setScreen={setScreen} />
 
       {/* Модальное окно добавления цели */}
       {showModal && (
@@ -278,7 +288,9 @@ export function CandidateDetailScreen() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold">{candidate.name}</h1>
-              <p className="text-sm text-gray-500">{candidate.age} лет</p>
+              <p className="text-sm text-gray-500">
+                {candidate.age != null ? `${candidate.age} лет` : "Возраст не указан"}
+              </p>
             </div>
             <div className="rounded-full bg-[var(--green-light)] px-3 py-1 text-sm font-semibold">
               {candidate.compatibility}% match
@@ -383,17 +395,13 @@ export function MatchSuccessScreen() {
 }
 
 export function LikesScreen() {
-  const { state, setScreen } = useApp()
-
-  const likedItems = useMemo(
-    () => state.candidates.filter((candidate) => state.likedCandidates.includes(candidate.id)),
-    [state.candidates, state.likedCandidates]
-  )
+  const { state, setScreen, setState } = useApp()
+  const likedItems = state.favoriteCandidates
 
   return (
     <div className="flex flex-col min-h-dvh animate-fade-in">
       <div className="flex items-center justify-between px-6 h-14 mt-2">
-        <button onClick={() => setScreen("main")} className="p-1" aria-label="Back">
+        <button onClick={() => setScreen("search-intro")} className="p-1" aria-label="Back">
           <ChevronLeft className="w-6 h-6" />
         </button>
         <span className="text-base font-semibold">Мои лайки</span>
@@ -416,17 +424,9 @@ export function LikesScreen() {
                 key={candidate.id}
                 candidate={candidate}
                 onClick={() => {
-                  const index = state.candidates.findIndex((item) => item.id === candidate.id)
+                  const index = state.favoriteCandidates.findIndex((item) => item.id === candidate.id)
+                  setState((prev) => ({ ...prev, currentFavoriteIndex: index >= 0 ? index : 0 }))
                   setScreen("likes-candidates")
-                  if (index >= 0) {
-                    setTimeout(() => {
-                      window.dispatchEvent(
-                        new CustomEvent("studybuddy-open-liked-candidate", {
-                          detail: { index },
-                        })
-                      )
-                    }, 0)
-                  }
                 }}
               />
             ))}
@@ -434,36 +434,17 @@ export function LikesScreen() {
         )}
       </div>
 
-      <TabBar active="search" setScreen={setScreen} />
+      <TabBar active="likes" setScreen={setScreen} />
     </div>
   )
 }
 
 
 export function LikesCandidatesScreen() {
-  const { state, setScreen, setState } = useApp()
+  const { state, setScreen } = useApp()
+  const likedItems = state.favoriteCandidates
 
-  const likedItems = useMemo(
-    () => state.candidates.filter((candidate) => state.likedCandidates.includes(candidate.id)),
-    [state.candidates, state.likedCandidates]
-  )
-
-  const currentLikedCandidate = likedItems[0] ?? null
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<{ index: number }>
-      const index = custom.detail?.index
-      if (typeof index === "number") {
-        setState((prev) => ({ ...prev, currentCandidateIndex: index }))
-      }
-    }
-    window.addEventListener("studybuddy-open-liked-candidate", handler)
-    return () => window.removeEventListener("studybuddy-open-liked-candidate", handler)
-  }, [setState])
-
-  const candidate =
-    state.candidates[state.currentCandidateIndex] ?? currentLikedCandidate
+  const candidate = likedItems[state.currentFavoriteIndex] ?? likedItems[0] ?? null
 
   if (!candidate) {
     return (
@@ -498,12 +479,120 @@ export function LikesCandidatesScreen() {
   )
 }
 
+export function AdmirersScreen() {
+  const { state, setScreen, setState } = useApp()
+  const admirerItems = state.admirerCandidates
+
+  return (
+    <div className="flex flex-col min-h-dvh animate-fade-in">
+      <div className="flex items-center justify-between px-6 h-14 mt-2">
+        <button onClick={() => setScreen("search-intro")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Кто лайкнул тебя</span>
+        <div className="w-8" />
+      </div>
+
+      <div className="flex-1 px-6 pt-4 pb-28">
+        {admirerItems.length === 0 ? (
+          <div className="bg-gray-50 rounded-3xl p-6 text-center mt-10">
+            <h2 className="text-lg font-semibold mb-2">Пока пусто</h2>
+            <p className="text-sm text-gray-500 mb-5">Пока тебя никто не лайкнул.</p>
+            <button className="btn-green" onClick={() => setScreen("search-intro")}>
+              Перейти к поиску
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {admirerItems.map((candidate, index) => (
+              <MiniCandidateCard
+                key={candidate.id}
+                candidate={candidate}
+                onClick={() => {
+                  setState((prev) => ({ ...prev, currentAdmirerIndex: index }))
+                  setScreen("admirers-candidates")
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <TabBar active="search" setScreen={setScreen} />
+    </div>
+  )
+}
+
+export function AdmirerCandidatesScreen() {
+  const { state, setScreen, setState } = useApp()
+  const candidate = state.admirerCandidates[state.currentAdmirerIndex] ?? null
+
+  if (!candidate) {
+    return (
+      <div className="flex flex-col min-h-dvh px-6">
+        <div className="flex items-center justify-between h-14 mt-2">
+          <button onClick={() => setScreen("admirers")} className="p-1" aria-label="Back">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <span className="text-base font-semibold">Кто лайкнул тебя</span>
+          <div className="w-8" />
+        </div>
+        <div className="flex-1 flex items-center justify-center text-gray-500">
+          Нет выбранного профиля
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
+      <div className="flex items-center justify-between h-14 mt-2">
+        <button onClick={() => setScreen("admirers")} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Кто лайкнул тебя</span>
+        <div className="w-8" />
+      </div>
+      <div className="pt-4">
+        <CandidateCardView
+          candidate={candidate}
+          onOpen={() => {
+            const index = state.admirerCandidates.findIndex((item) => item.id === candidate.id)
+            setState((prev) => ({ ...prev, currentAdmirerIndex: index >= 0 ? index : prev.currentAdmirerIndex }))
+          }}
+          primaryActionLabel={candidate.isFavorite ? "Уже в твоих лайках" : "Лайкнуть в ответ"}
+          onPrimaryAction={
+            candidate.isFavorite
+              ? undefined
+              : async () => {
+                  await favoritesAPI.like(candidate.id)
+                  setState((prev) => ({
+                    ...prev,
+                    admirerCandidates: prev.admirerCandidates.map((item) =>
+                      item.id === candidate.id ? { ...item, isFavorite: true } : item,
+                    ),
+                    favoriteCandidates: prev.favoriteCandidates.some((item) => item.id === candidate.id)
+                      ? prev.favoriteCandidates
+                      : [...prev.favoriteCandidates, { ...candidate, isFavorite: true }],
+                  }))
+                }
+          }
+        />
+      </div>
+    </div>
+  )
+}
+
 function CandidateCardView({
   candidate,
   onOpen,
+  primaryActionLabel,
+  onPrimaryAction,
 }: {
   candidate: Candidate
   onOpen: () => void
+  primaryActionLabel?: string
+  onPrimaryAction?: (() => void | Promise<void>) | undefined
 }) {
   return (
     <div className="rounded-3xl overflow-hidden shadow-sm border border-gray-100 bg-white">
@@ -517,7 +606,8 @@ function CandidateCardView({
           <div>
             <h2 className="text-2xl font-bold">{candidate.name}</h2>
             <p className="text-sm text-gray-500">
-              {candidate.age} лет, {candidate.city || "город не указан"}
+              {candidate.age != null ? `${candidate.age} лет` : "Возраст не указан"}
+              {candidate.city ? `, ${candidate.city}` : ", город не указан"}
             </p>
           </div>
           <div className="rounded-full bg-[var(--green-light)] px-3 py-1 text-sm font-semibold">
@@ -538,6 +628,15 @@ function CandidateCardView({
         <button className="btn-outline-gray mt-5" onClick={onOpen}>
           Открыть профиль
         </button>
+        {primaryActionLabel && (
+          <button
+            className="btn-green mt-3"
+            onClick={() => void onPrimaryAction?.()}
+            disabled={!onPrimaryAction}
+          >
+            {primaryActionLabel}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -21,6 +21,7 @@ export type AppScreen =
   | "survey1"
   | "survey2"
   | "main"
+  | "profile"
   | "search-intro"
   | "search-card"
   | "search-profile"
@@ -29,11 +30,14 @@ export type AppScreen =
   | "match-contacts"
   | "likes"
   | "likes-candidates"
+  | "admirers"
+  | "admirers-candidates"
 
 
 export interface UserProfile {
   firstName: string
   lastName: string
+  age: number | null
   city: string
   role: "student" | "pupil"
   university: string
@@ -73,7 +77,7 @@ export interface StudyGoal {
 export interface Candidate {
   id: number
   name: string
-  age: number
+  age: number | null
   city: string
   avatar: string
   compatibility: number
@@ -94,11 +98,15 @@ interface AppState {
   likedCandidates: number[]
   matchedCandidate: Candidate | null
   candidates: Candidate[]
+  favoriteCandidates: Candidate[]
+  admirerCandidates: Candidate[]
   isLoadingCandidates: boolean
   isLoggedIn: boolean
   authUserId: number | null
   authEmail: string | null
   apiError: string | null
+  currentAdmirerIndex: number
+  currentFavoriteIndex: number
 }
 
 
@@ -115,15 +123,18 @@ interface AppContextType {
   register: (email: string, password: string, telegram?: string) => Promise<void>
   logout: () => Promise<void>
   loadCandidates: () => Promise<void>
+  loadFavoriteCandidates: () => Promise<void>
+  loadAdmirerCandidates: () => Promise<void>
   loadProfile: () => Promise<void>
-  saveProfile: () => Promise<void>
-  savePreferences: () => Promise<void>
+  saveProfile: (overrides?: Partial<UserProfile>) => Promise<void>
+  savePreferences: (overrides?: Partial<UserProfile>) => Promise<void>
 }
 
 
 const defaultUser: UserProfile = {
   firstName: "",
   lastName: "",
+  age: null,
   city: "",
   role: "student",
   university: "",
@@ -154,6 +165,23 @@ const defaultUser: UserProfile = {
 
 const AppContext = createContext<AppContextType | null>(null)
 
+function createAccountScopedDefaults() {
+  return {
+    user: defaultUser,
+    currentGoalIndex: 0,
+    currentCandidateIndex: 0,
+    likedCandidates: [],
+    matchedCandidate: null,
+    candidates: [],
+    favoriteCandidates: [],
+    admirerCandidates: [],
+    isLoadingCandidates: false,
+    apiError: null,
+    currentAdmirerIndex: 0,
+    currentFavoriteIndex: 0,
+  }
+}
+
 
 export function useApp() {
   const ctx = useContext(AppContext)
@@ -171,25 +199,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     likedCandidates: [],
     matchedCandidate: null,
     candidates: [],
+    favoriteCandidates: [],
+    admirerCandidates: [],
     isLoadingCandidates: false,
     isLoggedIn: false,
     authUserId: null,
     authEmail: null,
     apiError: null,
+    currentAdmirerIndex: 0,
+    currentFavoriteIndex: 0,
   })
 
 
   const stateRef = useRef(state)
   stateRef.current = state
 
+  const sessionVersionRef = useRef(0)
+
+  const beginSessionTransition = useCallback(() => {
+    sessionVersionRef.current += 1
+    return sessionVersionRef.current
+  }, [])
+
+  const isSessionCurrent = useCallback((sessionVersion: number) => {
+    return sessionVersion === sessionVersionRef.current
+  }, [])
+
+  const setStateForSession = useCallback(
+    (sessionVersion: number, updater: (prev: AppState) => AppState) => {
+      setState((prev) => {
+        if (!isSessionCurrent(sessionVersion)) {
+          return prev
+        }
+
+        return updater(prev)
+      })
+    },
+    [isSessionCurrent],
+  )
+
 
   // ========== ЗАГРУЗКА КАНДИДАТОВ ==========
-  const loadCandidates = useCallback(async () => {
-    setState((prev) => ({ ...prev, isLoadingCandidates: true, apiError: null }))
+  const loadCandidatesForSession = useCallback(async (sessionVersion: number) => {
+    setStateForSession(sessionVersion, (prev) => ({
+      ...prev,
+      isLoadingCandidates: true,
+      apiError: null,
+    }))
+
     try {
       const data = await matchingAPI.getCandidates({ limit: 50, offset: 0 })
       const list: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
-      setState((prev) => ({
+
+      setStateForSession(sessionVersion, (prev) => ({
         ...prev,
         candidates: list,
         currentCandidateIndex: 0,
@@ -197,80 +259,192 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Ошибка загрузки кандидатов"
-      setState((prev) => ({ ...prev, isLoadingCandidates: false, apiError: msg }))
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        candidates: [],
+        currentCandidateIndex: 0,
+        isLoadingCandidates: false,
+        apiError: msg,
+      }))
     }
-  }, [])
+  }, [setStateForSession])
+
+  const loadCandidates = useCallback(() => {
+    return loadCandidatesForSession(sessionVersionRef.current)
+  }, [loadCandidatesForSession])
+
+  const loadFavoriteCandidatesForSession = useCallback(async (sessionVersion: number) => {
+    try {
+      const data = await favoritesAPI.getMyFavorites()
+      const list: Candidate[] = Array.isArray(data) ? data : []
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        favoriteCandidates: list,
+        currentFavoriteIndex: 0,
+      }))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Ошибка загрузки моих лайков"
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        favoriteCandidates: [],
+        currentFavoriteIndex: 0,
+        apiError: msg,
+      }))
+    }
+  }, [setStateForSession])
+
+  const loadFavoriteCandidates = useCallback(() => {
+    return loadFavoriteCandidatesForSession(sessionVersionRef.current)
+  }, [loadFavoriteCandidatesForSession])
+
+  const loadAdmirerCandidatesForSession = useCallback(async (sessionVersion: number) => {
+    try {
+      const data = await favoritesAPI.getAdmirers()
+      const list: Candidate[] = Array.isArray(data) ? data : []
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        admirerCandidates: list,
+        currentAdmirerIndex: 0,
+      }))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Ошибка загрузки тех, кто лайкнул тебя"
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        admirerCandidates: [],
+        currentAdmirerIndex: 0,
+        apiError: msg,
+      }))
+    }
+  }, [setStateForSession])
+
+  const loadAdmirerCandidates = useCallback(() => {
+    return loadAdmirerCandidatesForSession(sessionVersionRef.current)
+  }, [loadAdmirerCandidatesForSession])
 
 
   // ========== ЗАГРУЗКА ПРОФИЛЯ ==========
-  const loadProfile = useCallback(async () => {
+  const loadProfileForSession = useCallback(async (sessionVersion: number) => {
     try {
       const data = await profileAPI.getMe() as any
       const profile = data?.profile
-      if (!profile) return
+      const preferences = data?.preferences
+      const safeUser = data?.user
 
-
-      const goals: StudyGoal[] = profile.studyGoal
+      const goals: StudyGoal[] = profile?.studyGoal
         ? [{ id: "1", name: profile.studyGoal, description: profile.bio || "", startDate: "" }]
         : []
 
 
-      setState((prev) => ({
+      setStateForSession(sessionVersion, (prev) => ({
         ...prev,
         user: {
-          ...prev.user,
-          firstName: profile.firstName || "",
-          lastName: profile.lastName || "",
-          city: profile.city || "",
-          knowledgeLevel: profile.proficiencyLevel || "",
-          preferredTime: Array.isArray(profile.schedule) ? profile.schedule : [],
+          ...defaultUser,
+          firstName: profile?.firstName || "",
+          lastName: profile?.lastName || "",
+          age: typeof profile?.age === "number" ? profile.age : null,
+          city: profile?.city || "",
+          role: profile?.course?.includes("класс") ? "pupil" : "student",
+          university: profile?.university || "",
+          program: profile?.program || "",
+          course: profile?.course || defaultUser.course,
+          messengerHandle: profile?.messengerHandle || safeUser?.telegramUsername || "",
+          knowledgeLevel: profile?.proficiencyLevel || "",
+          preferredTime: Array.isArray(profile?.schedule) ? profile.schedule : [],
           studyGoals: goals,
-          bio: profile.bio || "",
-          avatarUrl: profile.avatarUrl || "",
-          learningFormat: profile.learningFormat || "",
-          communicationStyle: profile.communicationStyle || "",
+          bio: profile?.bio || "",
+          avatarUrl: profile?.avatarUrl || "",
+          learningFormat: profile?.learningFormat || preferences?.learningFormat || "",
+          communicationStyle: profile?.communicationStyle || preferences?.communicationStyle || "",
+          partnerLevel: preferences?.preferredLevel || "",
         },
       }))
     } catch (e) {
       console.error("Failed to load profile", e)
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        user: defaultUser,
+      }))
     }
-  }, [])
+  }, [setStateForSession])
+
+  const loadProfile = useCallback(() => {
+    return loadProfileForSession(sessionVersionRef.current)
+  }, [loadProfileForSession])
 
 
   // При старте — проверяем сессию
   useEffect(() => {
     const checkSession = async () => {
+      const sessionVersion = beginSessionTransition()
+
       try {
-        const token = localStorage.getItem("auth_token")
-        if (!token) {
-          setState((prev) => ({ ...prev, screen: "auth" }))
+        const me = await authAPI.getMe()
+        if (!isSessionCurrent(sessionVersion)) {
           return
         }
-        const me = await authAPI.getMe()
+
         if (me && (me as { id?: number }).id) {
           const user = me as { id: number; email: string }
-          setState((prev) => ({
+
+          setStateForSession(sessionVersion, (prev) => ({
             ...prev,
+            ...createAccountScopedDefaults(),
             isLoggedIn: true,
             authUserId: user.id,
             authEmail: user.email,
             screen: "main",
           }))
-          await Promise.all([loadCandidates(), loadProfile()])
+
+          await Promise.all([
+            loadCandidatesForSession(sessionVersion),
+            loadFavoriteCandidatesForSession(sessionVersion),
+            loadAdmirerCandidatesForSession(sessionVersion),
+            loadProfileForSession(sessionVersion),
+          ])
         } else {
-          localStorage.removeItem("auth_token")
-          setState((prev) => ({ ...prev, screen: "auth" }))
+          setStateForSession(sessionVersion, (prev) => ({
+            ...prev,
+            ...createAccountScopedDefaults(),
+            isLoggedIn: false,
+            authUserId: null,
+            authEmail: null,
+            screen: "auth",
+          }))
         }
       } catch {
-        localStorage.removeItem("auth_token")
-        setState((prev) => ({ ...prev, screen: "auth" }))
+        if (!isSessionCurrent(sessionVersion)) {
+          return
+        }
+
+        setStateForSession(sessionVersion, (prev) => ({
+          ...prev,
+          ...createAccountScopedDefaults(),
+          isLoggedIn: false,
+          authUserId: null,
+          authEmail: null,
+          screen: "auth",
+        }))
       }
     }
 
 
     const timer = setTimeout(checkSession, 1500)
     return () => clearTimeout(timer)
-  }, [loadCandidates, loadProfile])
+  }, [
+    beginSessionTransition,
+    isSessionCurrent,
+    loadAdmirerCandidatesForSession,
+    loadCandidatesForSession,
+    loadFavoriteCandidatesForSession,
+    loadProfileForSession,
+    setStateForSession,
+  ])
 
 
   // ========== БАЗОВЫЕ ФУНКЦИИ ==========
@@ -327,71 +501,109 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ========== AUTH ==========
   const login = useCallback(async (email: string, password: string) => {
+    const sessionVersion = beginSessionTransition()
     const result = await authAPI.login(email, password) as { user?: { id: number; email: string }; token?: string }
+    if (!isSessionCurrent(sessionVersion)) {
+      return
+    }
+
     const user = result?.user ?? (result as { id?: number; email?: string })
-    if (result?.token) localStorage.setItem("auth_token", result.token)
-    setState((prev) => ({
+    setStateForSession(sessionVersion, (prev) => ({
       ...prev,
+      ...createAccountScopedDefaults(),
       isLoggedIn: true,
       authUserId: (user as { id?: number })?.id ?? null,
       authEmail: (user as { email?: string })?.email ?? email,
       apiError: null,
+      screen: "main",
     }))
-    await Promise.all([loadCandidates(), loadProfile()])
-  }, [loadCandidates, loadProfile])
+
+    await Promise.all([
+      loadCandidatesForSession(sessionVersion),
+      loadFavoriteCandidatesForSession(sessionVersion),
+      loadAdmirerCandidatesForSession(sessionVersion),
+      loadProfileForSession(sessionVersion),
+    ])
+  }, [
+    beginSessionTransition,
+    isSessionCurrent,
+    loadAdmirerCandidatesForSession,
+    loadCandidatesForSession,
+    loadFavoriteCandidatesForSession,
+    loadProfileForSession,
+    setStateForSession,
+  ])
 
 
   const register = useCallback(async (email: string, password: string, telegram?: string) => {
+    const sessionVersion = beginSessionTransition()
     const result = await authAPI.register(email, password, telegram) as { user?: { id: number; email: string }; token?: string }
+    if (!isSessionCurrent(sessionVersion)) {
+      return
+    }
+
     const user = result?.user ?? (result as { id?: number; email?: string })
-    if (result?.token) localStorage.setItem("auth_token", result.token)
-    setState((prev) => ({
+    setStateForSession(sessionVersion, (prev) => ({
       ...prev,
+      ...createAccountScopedDefaults(),
       isLoggedIn: true,
       authUserId: (user as { id?: number })?.id ?? null,
       authEmail: (user as { email?: string })?.email ?? email,
       apiError: null,
     }))
-  }, [])
+  }, [beginSessionTransition, isSessionCurrent, setStateForSession])
 
 
   const logout = useCallback(async () => {
+    const sessionVersion = beginSessionTransition()
+
     try {
       await authAPI.logout()
     } catch {
       // не страшно
     }
-    localStorage.removeItem("auth_token")
-    setState((prev) => ({
+
+    if (!isSessionCurrent(sessionVersion)) {
+      return
+    }
+
+    setStateForSession(sessionVersion, (prev) => ({
       ...prev,
+      ...createAccountScopedDefaults(),
       isLoggedIn: false,
       authUserId: null,
       authEmail: null,
-      candidates: [],
       screen: "auth",
-      user: defaultUser,
     }))
-  }, [])
+  }, [beginSessionTransition, isSessionCurrent, setStateForSession])
 
 
   // ========== СОХРАНЕНИЕ ПРОФИЛЯ ==========
-  const saveProfile = useCallback(async () => {
-    const u = stateRef.current.user
+  const saveProfile = useCallback(async (overrides?: Partial<UserProfile>) => {
+    const u = { ...stateRef.current.user, ...overrides }
+    const primaryGoal = u.studyGoals[0]
     await profileAPI.updateAboutMe({
       firstName: u.firstName,
       lastName: u.lastName,
+      age: u.age ?? undefined,
       city: u.city,
-      studyGoal: u.studyGoals[0]?.name ?? "",
+      university: u.university,
+      program: u.program,
+      course: u.course,
+      messengerHandle: u.messengerHandle,
+      studyGoal: primaryGoal?.name ?? "",
       proficiencyLevel: u.knowledgeLevel,
       schedule: u.preferredTime,
-      bio: u.bio,
+      learningFormat: u.learningFormat,
+      communicationStyle: u.communicationStyle,
+      bio: primaryGoal?.description || u.bio,
       avatarUrl: u.avatarUrl,
     })
   }, [])
 
 
-  const savePreferences = useCallback(async () => {
-    const u = stateRef.current.user
+  const savePreferences = useCallback(async (overrides?: Partial<UserProfile>) => {
+    const u = { ...stateRef.current.user, ...overrides }
     await profileAPI.updatePartnerPreferences({
       preferredLevel: u.partnerLevel,
       preferredSchedule: u.preferredTime,
@@ -417,6 +629,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         loadCandidates,
+        loadFavoriteCandidates,
+        loadAdmirerCandidates,
         loadProfile,
         saveProfile,
         savePreferences,

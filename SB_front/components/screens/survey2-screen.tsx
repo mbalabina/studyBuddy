@@ -64,14 +64,23 @@ const survey2Questions = [
 ]
 
 export default function Survey2Screen() {
-  const { state, setScreen, updateUser } = useApp()
+  const { state, setScreen, updateUser, saveProfile, savePreferences, loadCandidates } = useApp()
   const [currentQ, setCurrentQ] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const question = survey2Questions[currentQ]
   const total = survey2Questions.length
   const progress = ((currentQ + 1) / total) * 100
   const currentAnswer = answers[question.id]
+  const finalPreferenceUpdates = {
+    importantInStudy: (answers.importantInStudy as string[]) || [],
+    additionalGoals: (answers.additionalGoals as string[]) || [],
+    partnerLevel: (answers.partnerLevel as string) || "",
+    importantTraits: (answers.importantTraits as string[]) || [],
+    partnerLearningStyle: (answers.partnerLearningStyle as string[]) || [],
+  }
 
   const canProceed = () => {
     if (!currentAnswer) return false
@@ -79,20 +88,27 @@ export default function Survey2Screen() {
     return true
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentQ < total - 1) {
       setCurrentQ(currentQ + 1)
     } else {
-      updateUser({
-        importantInStudy: (answers.importantInStudy as string[]) || [],
-        additionalGoals: (answers.additionalGoals as string[]) || [],
-        partnerLevel: (answers.partnerLevel as string) || "",
-        importantTraits: (answers.importantTraits as string[]) || [],
-        partnerLearningStyle: (answers.partnerLearningStyle as string[]) || [],
-      })
-      // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск
-      // Если нет — это первый онбординг, идём на главную
-      setScreen(state.user.firstName ? "search-intro" : "main")
+      updateUser(finalPreferenceUpdates)
+
+      setSaving(true)
+      setError(null)
+
+      try {
+        await saveProfile()
+        await savePreferences(finalPreferenceUpdates)
+        await loadCandidates()
+        // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск
+        // Если нет — это первый онбординг, идём на главную
+        setScreen(state.user.firstName ? "search-intro" : "main")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Не удалось сохранить анкету")
+      } finally {
+        setSaving(false)
+      }
     }
   }
 
@@ -162,8 +178,9 @@ export default function Survey2Screen() {
         </div>
 
         <div className="mt-auto pb-8 pt-6">
-          <button className="btn-green" onClick={handleNext} disabled={!canProceed()}>
-            Далее
+          {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+          <button className="btn-green" onClick={() => void handleNext()} disabled={!canProceed() || saving}>
+            {saving ? "Сохраняем..." : "Далее"}
           </button>
         </div>
       </div>

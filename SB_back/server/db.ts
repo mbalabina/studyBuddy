@@ -15,6 +15,12 @@ import {
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as Partial<T>;
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -81,7 +87,7 @@ export async function getUserById(id: number): Promise<User | null> {
 
 export async function upsertProfile(
   userId: number,
-  data: Omit<InsertProfile, "userId">,
+  data: Partial<Omit<InsertProfile, "userId">>,
 ): Promise<Profile | null> {
   const db = await getDb();
   if (!db) {
@@ -91,17 +97,23 @@ export async function upsertProfile(
 
   try {
     const existing = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+    const payload = omitUndefined(data);
 
     if (existing.length > 0) {
       await db
         .update(profiles)
         .set({
-          ...data,
+          ...payload,
           updatedAt: new Date(),
         })
         .where(eq(profiles.userId, userId));
     } else {
-      await db.insert(profiles).values({ userId, ...data });
+      await db.insert(profiles).values({
+        userId,
+        subjects: [],
+        schedule: [],
+        ...payload,
+      });
     }
 
     const result = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
@@ -125,7 +137,7 @@ export async function getProfile(userId: number): Promise<Profile | null> {
 
 export async function upsertPreferences(
   userId: number,
-  data: Omit<InsertPreference, "userId">,
+  data: Partial<Omit<InsertPreference, "userId">>,
 ): Promise<Preference | null> {
   const db = await getDb();
   if (!db) {
@@ -135,17 +147,22 @@ export async function upsertPreferences(
 
   try {
     const existing = await db.select().from(preferences).where(eq(preferences.userId, userId)).limit(1);
+    const payload = omitUndefined(data);
 
     if (existing.length > 0) {
       await db
         .update(preferences)
         .set({
-          ...data,
+          ...payload,
           updatedAt: new Date(),
         })
         .where(eq(preferences.userId, userId));
     } else {
-      await db.insert(preferences).values({ userId, ...data });
+      await db.insert(preferences).values({
+        userId,
+        preferredSchedule: [],
+        ...payload,
+      });
     }
 
     const result = await db.select().from(preferences).where(eq(preferences.userId, userId)).limit(1);

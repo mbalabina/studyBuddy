@@ -1,10 +1,24 @@
 import Groq from "groq-sdk";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
 // Кэш результатов: не делаем повторные запросы для одинаковых пар целей
 const goalCache = new Map<string, number>();
 const MAX_CACHE_SIZE = 500;
+let groqClient: Groq | null | undefined;
+
+function getGroqClient(): Groq | null {
+  if (groqClient !== undefined) {
+    return groqClient;
+  }
+
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  if (!apiKey) {
+    groqClient = null;
+    return groqClient;
+  }
+
+  groqClient = new Groq({ apiKey });
+  return groqClient;
+}
 
 export async function compareGoals(goal1: string, goal2: string): Promise<number> {
   if (!goal1 || !goal2) return 0.5;
@@ -17,6 +31,11 @@ export async function compareGoals(goal1: string, goal2: string): Promise<number
   }
 
   try {
+    const groq = getGroqClient();
+    if (!groq) {
+      return 0.5;
+    }
+
     const response = await groq.chat.completions.create({
       model: "llama-3.1-8b-instant",
       messages: [

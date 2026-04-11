@@ -5,51 +5,146 @@ import { ChevronLeft, Camera, Loader2 } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { profileAPI } from "@/lib/api"
+import { useApp } from "@/lib/app-context"
 import type React from "react"
 
 interface FormState {
   firstName: string
   lastName: string
+  age: string
   city: string
   university: string
   program: string
   course: string
   messengerHandle: string
   studyGoal: string
+  goalDescription: string
   avatarUrl: string
 }
 
 const empty: FormState = {
   firstName: "",
   lastName: "",
+  age: "",
   city: "",
   university: "",
   program: "",
   course: "",
   messengerHandle: "",
   studyGoal: "",
+  goalDescription: "",
   avatarUrl: "",
 }
 
-function resizeToBase64(file: File, maxPx = 256): Promise<string> {
+const MAX_AVATAR_DATA_URL_LENGTH = 60_000
+
+function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const img = document.createElement("img")
-    const canvas = document.createElement("canvas")
-    img.onload = () => {
-      const scale = Math.min(maxPx / img.width, maxPx / img.height, 1)
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL("image/jpeg", 0.82))
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ""))
+    reader.onerror = () => reject(new Error("read_failed"))
+    reader.readAsDataURL(file)
+  })
+}
+
+function renderResizedImageToDataUrl(
+  img: HTMLImageElement,
+  targetWidth: number,
+  targetHeight: number,
+  outputType: string,
+  quality?: number,
+): string {
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(targetWidth))
+  canvas.height = Math.max(1, Math.round(targetHeight))
+
+  const ctx = canvas.getContext("2d")
+  if (!ctx) {
+    throw new Error("canvas_context_failed")
+  }
+
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = "high"
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+  if (typeof quality === "number") {
+    return canvas.toDataURL(outputType, quality)
+  }
+
+  return canvas.toDataURL(outputType)
+}
+
+function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
+  return new Promise(async (resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+
+    try {
+      const original = await readFileAsDataUrl(file)
+      if (original.length <= MAX_AVATAR_DATA_URL_LENGTH) {
+        resolve(original)
+        return
+      }
+
+      const img: HTMLImageElement = new window.Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error("decode_failed"))
+        img.src = objectUrl
+      })
+
+      if (typeof img.decode === "function") {
+        await img.decode().catch(() => undefined)
+      }
+
+      const width = img.naturalWidth || img.width
+      const height = img.naturalHeight || img.height
+
+      if (!width || !height) {
+        throw new Error("empty_image")
+      }
+
+      const targetType = file.type === "image/png" ? "image/png" : "image/jpeg"
+      const sizeSteps = [maxPx, 1440, 1280, 1120, 960, 840, 768]
+      let bestOutput = original
+
+      for (const step of sizeSteps) {
+        const scale = Math.min(step / width, step / height, 1)
+        const nextWidth = Math.max(1, Math.round(width * scale))
+        const nextHeight = Math.max(1, Math.round(height * scale))
+
+        const output = renderResizedImageToDataUrl(
+          img,
+          nextWidth,
+          nextHeight,
+          targetType,
+          targetType === "image/jpeg" ? 0.98 : undefined,
+        )
+
+        bestOutput = output
+        if (output.length <= MAX_AVATAR_DATA_URL_LENGTH) {
+          resolve(output)
+          return
+        }
+      }
+
+      resolve(bestOutput)
+    } catch (error) {
+      try {
+        const fallback = await readFileAsDataUrl(file)
+        resolve(fallback)
+      } catch {
+        reject(error)
+      }
+    } finally {
+      URL.revokeObjectURL(objectUrl)
     }
-    img.onerror = reject
-    img.src = URL.createObjectURL(file)
   })
 }
 
 export default function ProfilePage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { loadProfile, loadCandidates } = useApp()
 
   const [form, setForm] = useState<FormState>(empty)
   const [loading, setLoading] = useState(true)
@@ -65,12 +160,14 @@ export default function ProfilePage() {
         setForm({
           firstName:       p.firstName       ?? "",
           lastName:        p.lastName        ?? "",
+          age:             p.age != null ? String(p.age) : "",
           city:            p.city            ?? "",
           university:      p.university      ?? "",
           program:         p.program         ?? "",
           course:          p.course          ?? "",
           messengerHandle: p.messengerHandle ?? u.telegramUsername ?? "",
           studyGoal:       p.studyGoal       ?? "",
+          goalDescription: p.bio             ?? "",
           avatarUrl:       p.avatarUrl       ?? "",
         })
       })
@@ -84,12 +181,33 @@ export default function ProfilePage() {
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    if (!file.type.startsWith("image/")) {
+      setError("Нужен файл изображения")
+      e.target.value = ""
+      return
+    }
+
     try {
       const base64 = await resizeToBase64(file)
       setForm((prev) => ({ ...prev, avatarUrl: base64 }))
     } catch {
-      setError("Не удалось обработать фото")
+      setError("Не удалось обработать фото. Попробуй JPG, PNG или WebP")
+    } finally {
+      e.target.value = ""
     }
+  }
+
+  const openAvatarPicker = () => {
+    const input = fileInputRef.current
+    if (!input) return
+
+    if (typeof input.showPicker === "function") {
+      input.showPicker()
+      return
+    }
+
+    input.click()
   }
 
   const handleSave = async () => {
@@ -99,14 +217,17 @@ export default function ProfilePage() {
       await profileAPI.updateAboutMe({
         firstName:       form.firstName,
         lastName:        form.lastName,
+        age:             form.age ? Number(form.age) : undefined,
         city:            form.city,
         university:      form.university,
         program:         form.program,
         course:          form.course,
         messengerHandle: form.messengerHandle,
         studyGoal:       form.studyGoal,
+        bio:             form.goalDescription,
         avatarUrl:       form.avatarUrl,
       })
+      await Promise.all([loadProfile(), loadCandidates()])
       router.push("/")
     } catch (e: any) {
       setError(e?.message ?? "Ошибка сохранения")
@@ -153,6 +274,7 @@ export default function ProfilePage() {
                   )}
                 </div>
                 <input
+                  id="profile-avatar-input"
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
@@ -160,7 +282,8 @@ export default function ProfilePage() {
                   onChange={handleAvatarChange}
                 />
                 <button
-                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                  onClick={openAvatarPicker}
                   className="absolute -bottom-1 -right-1 w-7 h-7 bg-black rounded-full flex items-center justify-center"
                   aria-label="Изменить фото"
                 >
@@ -172,6 +295,7 @@ export default function ProfilePage() {
             <Section title="Личные данные">
               <Field label="Имя"     value={form.firstName} onChange={set("firstName")} />
               <Field label="Фамилия" value={form.lastName}  onChange={set("lastName")} />
+              <Field label="Возраст" value={form.age} onChange={set("age")} type="number" inputMode="numeric" />
               <Field label="Город"   value={form.city}      onChange={set("city")} />
             </Section>
 
@@ -184,6 +308,16 @@ export default function ProfilePage() {
 
             <Section title="Контакты">
               <Field label="Telegram / ВКонтакте" value={form.messengerHandle} onChange={set("messengerHandle")} />
+            </Section>
+
+            <Section title="Цель обучения">
+              <Field label="Название цели" value={form.studyGoal} onChange={set("studyGoal")} />
+              <TextAreaField
+                label="Описание цели"
+                value={form.goalDescription}
+                onChange={(e) => setForm((prev) => ({ ...prev, goalDescription: e.target.value }))}
+                rows={4}
+              />
             </Section>
 
             {error && <p className="mx-6 mt-2 text-xs text-red-500">{error}</p>}
@@ -205,6 +339,30 @@ export default function ProfilePage() {
   )
 }
 
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  rows = 3,
+}: {
+  label: string
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
+  rows?: number
+}) {
+  return (
+    <div className="py-1">
+      <p className="text-xs text-gray-400 mt-2">{label}</p>
+      <textarea
+        rows={rows}
+        value={value}
+        onChange={onChange}
+        className="w-full py-2 border-b border-gray-200 focus:border-black outline-none transition-colors text-sm font-medium bg-transparent resize-none"
+      />
+    </div>
+  )
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="px-6 mb-5">
@@ -220,16 +378,21 @@ function Field({
   label,
   value,
   onChange,
+  type,
+  inputMode,
 }: {
   label: string
   value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  type?: React.HTMLInputTypeAttribute
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
 }) {
   return (
     <div className="py-1">
       <p className="text-xs text-gray-400 mt-2">{label}</p>
       <input
-        type="text"
+        type={type ?? "text"}
+        inputMode={inputMode}
         value={value}
         onChange={onChange}
         className="w-full py-2 border-b border-gray-200 focus:border-black outline-none transition-colors text-sm font-medium bg-transparent"

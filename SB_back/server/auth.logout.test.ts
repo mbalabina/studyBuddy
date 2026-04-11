@@ -27,7 +27,7 @@ describe("auth.logout", () => {
     expect(clearedCookies[0]?.options).toMatchObject({
       httpOnly: true,
       path: "/",
-      sameSite: "lax",
+      sameSite: "none",
       secure: true,
       maxAge: -1,
     });

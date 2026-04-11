@@ -5,6 +5,7 @@ import { useApp } from "@/lib/app-context"
 import { Search, Heart, Home } from "lucide-react"
 
 export function TabBar({
+  active,
   setScreen,
 }: {
   active?: "search" | "likes" | "home"
@@ -13,9 +14,18 @@ export function TabBar({
   const { state } = useApp()
   const screen = state.screen
 
-  const isHome = screen === "main"
-  const isLikes = screen === "likes" || screen === "likes-candidates"
-  const isSearch = screen === "search-intro" || screen === "search-card" || screen === "search-profile"
+  const inferredHome = screen === "main"
+  const inferredLikes =
+    screen === "likes" ||
+    screen === "likes-candidates" ||
+    screen === "admirers" ||
+    screen === "admirers-candidates"
+  const inferredSearch =
+    screen === "search-intro" || screen === "search-card" || screen === "search-profile"
+
+  const isHome = active ? active === "home" : inferredHome
+  const isLikes = active ? active === "likes" : inferredLikes
+  const isSearch = active ? active === "search" : inferredSearch
 
   return (
     <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto bg-white border-t border-gray-100">

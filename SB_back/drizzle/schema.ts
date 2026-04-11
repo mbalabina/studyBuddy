@@ -28,6 +28,8 @@ export const profiles = mysqlTable("profiles", {
   schedule: json("schedule").$type<string[]>().notNull(),
   bio: text("bio"),
   experience: varchar("experience", { length: 255 }),
+  learningFormat: varchar("learningFormat", { length: 100 }),
+  communicationStyle: varchar("communicationStyle", { length: 100 }),
   // Новые поля
   avatarUrl: text("avatarUrl"),       // base64 JPEG 256×256 (~15KB); на проде — заменить на S3 URL
   university: varchar("university", { length: 255 }),
@@ -50,6 +52,7 @@ export const preferences = mysqlTable("preferences", {
   preferredSchedule: json("preferredSchedule").$type<string[]>().default([]).notNull(),
   learningFormat: varchar("learningFormat", { length: 100 }),
   communicationStyle: varchar("communicationStyle", { length: 100 }),
+  city: varchar("city", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

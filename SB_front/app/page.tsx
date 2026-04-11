@@ -15,6 +15,8 @@ import SearchIntroScreen, {
   MatchSuccessScreen,
   LikesScreen,
   LikesCandidatesScreen,
+  AdmirersScreen,
+  AdmirerCandidatesScreen,
 } from "@/components/screens/search-screens"
 
 function AppContent() {
@@ -55,6 +57,10 @@ function AppContent() {
       return <LikesScreen />
     case "likes-candidates":
       return <LikesCandidatesScreen />
+    case "admirers":
+      return <AdmirersScreen />
+    case "admirers-candidates":
+      return <AdmirerCandidatesScreen />
     default:
       return <SplashScreen />
   }

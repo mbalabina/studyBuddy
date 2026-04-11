@@ -16,13 +16,11 @@ async function callTRPC({
     url += `?input=${encodeURIComponent(JSON.stringify(wrappedInput))}`
   }
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-
   const options: RequestInit = {
     method: method === "query" ? "GET" : "POST",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     },
     credentials: "include",
   }
@@ -73,6 +71,8 @@ export const profileAPI = {
     program?: string
     course?: string
     messengerHandle?: string
+    learningFormat?: string
+    communicationStyle?: string
   }) =>
     callTRPC({ method: "mutation", procedure: "profile.updateAboutMe", input: data }),
 
@@ -93,7 +93,7 @@ export const favoritesAPI = {
   unlike: (candidateId: number) =>
     callTRPC({ method: "mutation", procedure: "favorites.unlike", input: { candidateId } }),
   getMyFavorites: () =>
-    callTRPC({ method: "query", procedure: "favorites.getMyFavorites" }),
+    callTRPC({ method: "query", procedure: "favorites.getList" }),
   getAdmirers: () =>
     callTRPC({ method: "query", procedure: "favorites.getAdmirers" }),
 }

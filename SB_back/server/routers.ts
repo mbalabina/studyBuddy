@@ -126,18 +126,21 @@ function buildCandidateCard(params: {
       : user.email.split("@")[0],
     firstName: profile?.firstName || "",
     lastName: profile?.lastName || "",
-    age: profile?.age || 0,
+    age: profile?.age ?? null,
     city: profile?.city || "",
     compatibility,
     goal: profile?.studyGoal || "",
+    goalDescription: profile?.bio || "",
     bio: profile?.bio || "",
     proficiencyLevel: profile?.proficiencyLevel || "",
     subjects: normalizeStringArray(profile?.subjects),
     schedule: normalizeStringArray(profile?.schedule),
     experience: profile?.experience || "",
+    university: profile?.university || "",
+    course: profile?.course || "",
     learningFormat: profile?.learningFormat || "",
     communicationStyle: profile?.communicationStyle || "",
-    telegram: user.telegramUsername || "",
+    telegram: profile?.messengerHandle || user.telegramUsername || "",
     avatar: profile?.avatarUrl || "",
     isFavorite,
   };
@@ -287,6 +290,8 @@ export const appRouter: any = router({
           schedule:         z.array(z.string()).optional(),
           bio:              z.string().optional(),
           experience:       z.string().optional(),
+          learningFormat:   z.string().optional(),
+          communicationStyle: z.string().optional(),
           // Новые поля
           avatarUrl:        z.string().optional(),
           university:       z.string().optional(),
@@ -295,23 +300,39 @@ export const appRouter: any = router({
           messengerHandle:  z.string().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
-          return await db.upsertProfile(ctx.user!.userId, {
+          const profile = await db.upsertProfile(ctx.user!.userId, {
             firstName:        input.firstName,
             lastName:         input.lastName,
             age:              input.age,
             city:             input.city,
             studyGoal:        input.studyGoal,
             proficiencyLevel: input.proficiencyLevel,
-            subjects:         input.subjects ?? [],
-            schedule:         input.schedule ?? [],
+            subjects:         input.subjects,
+            schedule:         input.schedule,
             bio:              input.bio,
             experience:       input.experience,
+            learningFormat:   input.learningFormat,
+            communicationStyle: input.communicationStyle,
             avatarUrl:        input.avatarUrl,
             university:       input.university,
             program:          input.program,
             course:           input.course,
             messengerHandle:  input.messengerHandle,
-          })
+          });
+
+          if (!profile) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to save profile",
+            });
+          }
+
+          const preferences = await db.getPreferences(ctx.user!.userId);
+          if (preferences) {
+            await db.markProfileComplete(ctx.user!.userId);
+          }
+
+          return profile;
         }),
 
     updatePartnerPreferences: protectedProcedure
@@ -331,14 +352,21 @@ export const appRouter: any = router({
           minAge: input.minAge,
           maxAge: input.maxAge,
           preferredLevel: input.preferredLevel,
-          preferredSchedule: input.preferredSchedule ?? [],
+          preferredSchedule: input.preferredSchedule,
           learningFormat: input.learningFormat,
           communicationStyle: input.communicationStyle,
           city: input.city,
-        } as any);
+        });
+
+        if (!preferences) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to save partner preferences",
+          });
+        }
 
         const profile = await db.getProfile(ctx.user!.userId);
-        if (profile && preferences) {
+        if (profile) {
           await db.markProfileComplete(ctx.user!.userId);
         }
 
