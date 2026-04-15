@@ -11,7 +11,7 @@ export default function AboutYouScreen() {
   const step = state.screen
 
   if (step === "about-congrats") return <CongratsScreen />
-  if (step === "about-goal") return <GoalScreen backTo="about-step3" nextTo="about-congrats2" />
+  if (step === "about-goal") return <GoalScreen backTo="about-step3" nextTo="about-congrats" />
   if (step === "new-goal") return <GoalScreen backTo="main" nextTo="main" />
   if (step === "about-congrats2") return <Congrats2Screen />
 
