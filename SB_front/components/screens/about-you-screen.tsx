@@ -12,6 +12,7 @@ export default function AboutYouScreen() {
 
   if (step === "about-congrats") return <CongratsScreen />
   if (step === "about-goal") return <GoalScreen />
+  if (step === "new-goal") return <GoalScreen />
   if (step === "about-congrats2") return <Congrats2Screen />
 
   return <AboutFormSteps />
