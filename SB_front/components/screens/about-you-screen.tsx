@@ -11,8 +11,8 @@ export default function AboutYouScreen() {
   const step = state.screen
 
   if (step === "about-congrats") return <CongratsScreen />
-  if (step === "about-goal") return <GoalScreen />
-  if (step === "new-goal") return <GoalScreen />
+  if (step === "about-goal") return <GoalScreen backTo="about-step3" nextTo="about-congrats2" />
+  if (step === "new-goal") return <GoalScreen backTo="main" nextTo="main" />
   if (step === "about-congrats2") return <Congrats2Screen />
 
   return <AboutFormSteps />
@@ -217,39 +217,55 @@ function CongratsScreen() {
   )
 }
 
-function GoalScreen() {
-  const { state, setScreen, addStudyGoal } = useApp()
+function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
+  const { setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
 
-  const handleAddGoal = () => {
-    if (!goalName.trim()) return
-    addStudyGoal({ id: Date.now().toString(), name: goalName, description: goalDesc, startDate: new Date().toLocaleDateString("ru-RU") })
-    setGoalName("")
-    setGoalDesc("")
-    setScreen("main")
+  const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
+
+  const handleNext = () => {
+    if (goalName) {
+      addStudyGoal({
+        id: Date.now().toString(),
+        name: goalName,
+        description: goalDesc,
+        startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
+      })
+    }
+    setScreen(nextTo as any)
   }
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
       <div className="flex items-center justify-between h-14 mt-2">
-        <button onClick={() => setScreen("main")} className="p-1" aria-label="Back"><ChevronLeft className="w-6 h-6" /></button>
-        <span className="text-base font-semibold">Новая цель</span>
+        <button onClick={() => setScreen(backTo as any)} className="p-1" aria-label="Back">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <span className="text-base font-semibold">Анкета о тебе</span>
         <div className="w-8" />
       </div>
       <div className="flex-1 flex flex-col">
-        <h2 className="text-2xl font-bold text-center mb-8">Какая у тебя цель?</h2>
-        <div className="space-y-5">
-          <input type="text" placeholder="Название цели (например, IELTS)" value={goalName}
-            onChange={(e) => setGoalName(e.target.value)}
-            className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+        <h2 className="text-2xl font-bold text-center mb-2">Поставь цели</h2>
+        <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
+          Расскажи, что бы ты хотел изучать вместе со своим бадди.
+        </p>
+        <div className="space-y-4 mb-6">
+          <div className="relative">
+            <select value={goalName} onChange={(e) => setGoalName(e.target.value)}
+              className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors">
+              <option value="">Твоя учебная цель</option>
+              {goalOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
+          </div>
           <textarea placeholder="Описание (опционально)" value={goalDesc}
             onChange={(e) => setGoalDesc(e.target.value)}
             className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base resize-none" rows={3} />
         </div>
         <div className="mt-auto pb-8 pt-6">
-          <button className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleAddGoal} disabled={!goalName.trim()}>Добавить цель</button>
+          <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
+            onClick={handleNext}>Далее</button>
         </div>
       </div>
     </div>
@@ -263,7 +279,7 @@ function Congrats2Screen() {
       <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-6 object-contain" />
       <h2 className="text-2xl font-bold mb-2 text-center">Готово!</h2>
       <p className="text-sm text-gray-500 text-center mb-8">Теперь ты можешь начать искать бадди</p>
-      <button onClick={() => setScreen("main")} className="btn-green !w-auto px-8">На главную</button>
+      <button onClick={() => setScreen(state.screen === "about-goal" ? "about-congrats2" : "main")} className="btn-green !w-auto px-8">На главную</button>
     </div>
   )
 }
