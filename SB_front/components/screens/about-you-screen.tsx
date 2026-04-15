@@ -92,6 +92,9 @@ function AboutFormSteps() {
             <input type="text" placeholder="Город" value={user.city}
               onChange={(e) => updateUser({ city: e.target.value })}
               className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <input type="number" placeholder="Возраст" value={user.age ?? ""}
+              onChange={(e) => updateUser({ age: e.target.value ? Number(e.target.value) : undefined })}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
             <div className="pt-4">
               <p className="text-sm font-semibold mb-3">Кто ты?</p>
               <div className="flex gap-3">
@@ -121,13 +124,21 @@ function AboutFormSteps() {
           <h2 className="text-2xl font-bold text-center mb-2">Образование</h2>
           <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">Расскажи о своем образовании</p>
           <div className="space-y-5">
-            <input type="text" placeholder="Название университета" value={user.university}
-              onChange={(e) => updateUser({ university: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
-            <input type="text" placeholder="Программа обучения" value={user.program}
-              onChange={(e) => updateUser({ program: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
-            <CourseSelector value={user.course} onChange={(course) => updateUser({ course })} />
+            {user.role !== "pupil" ? (
+              <>
+                <input type="text" placeholder="Название университета" value={user.university}
+                  onChange={(e) => updateUser({ university: e.target.value })}
+                  className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+                <input type="text" placeholder="Программа обучения" value={user.program}
+                  onChange={(e) => updateUser({ program: e.target.value })}
+                  className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+                <CourseSelector value={user.course} onChange={(course) => updateUser({ course })} />
+              </>
+            ) : (
+              <input type="text" placeholder="Школа / класс" value={user.university}
+                onChange={(e) => updateUser({ university: e.target.value })}
+                className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            )}
           </div>
           <div className="mt-auto pb-8 pt-6 space-y-3">
             <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
