@@ -442,12 +442,9 @@ export const appRouter: any = router({
           if (typeof input.minAge === "number" && (profile.age ?? -1) < input.minAge) return false;
           if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
 
-          // Hard filter: основная цель должна совпадать точно
-          if (
-            currentProfile?.studyGoal &&
-            profile.studyGoal &&
-            profile.studyGoal !== currentProfile.studyGoal
-          ) return false;
+          // Hard filter: кандидат должен иметь цель и она должна совпадать
+          if (!profile.studyGoal) return false;
+          if (currentProfile?.studyGoal && profile.studyGoal !== currentProfile.studyGoal) return false;
 
           return true;
         });
