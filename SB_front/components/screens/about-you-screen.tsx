@@ -1,17 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { useApp, type AppScreen } from "@/lib/app-context"
+import { useApp } from "@/lib/app-context"
+import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
 import Image from "next/image"
 
 export default function AboutYouScreen() {
-  const { state, setScreen } = useApp()
+  const { state, setScreen, updateUser } = useApp()
   const step = state.screen
 
   if (step === "about-congrats") return <CongratsScreen />
-  if (step === "about-goal") return <GoalScreen backTo="about-congrats" nextTo="about-congrats2" />
-  if (step === "new-goal") return <GoalScreen backTo="main" nextTo="main" />
+  if (step === "about-goal") return <GoalScreen />
   if (step === "about-congrats2") return <Congrats2Screen />
 
   return <AboutFormSteps />
@@ -19,12 +19,35 @@ export default function AboutYouScreen() {
 
 function AboutFormSteps() {
   const { state, setScreen, updateUser } = useApp()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const step = state.screen as "about-step1" | "about-step2" | "about-step3"
   const user = state.user
-  const isPupil = user.role === "pupil"
 
+  const stepNum = step === "about-step1" ? 1 : step === "about-step2" ? 2 : 3
   const prevScreen =
     step === "about-step1" ? "auth" : step === "about-step2" ? "about-step1" : "about-step2"
+
+  const handleFinish = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await profileAPI.updateAboutMe({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        city: user.city,
+        university: user.university,
+        program: user.program,
+        course: user.course,
+        messengerHandle: user.messengerHandle,
+      })
+      setScreen("about-congrats")
+    } catch (e: any) {
+      setError(e.message || "Ошибка сохранения")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
@@ -34,6 +57,17 @@ function AboutFormSteps() {
         </button>
         <span className="text-base font-semibold">Анкета о тебе</span>
         <div className="w-8" />
+      </div>
+
+      <div className="flex gap-1 mb-6">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full ${
+              i <= stepNum ? "bg-black" : "bg-gray-200"
+            }`}
+          />
+        ))}
       </div>
 
       <div className="flex justify-center my-4">
@@ -48,63 +82,34 @@ function AboutFormSteps() {
           <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
             Расскажи нам о себе, чтобы мы лучше понимали, с кем тебе будет комфортно учиться
           </p>
-
           <div className="space-y-5">
-            <input
-              type="text"
-              placeholder="Твое имя"
-              value={user.firstName}
+            <input type="text" placeholder="Твое имя" value={user.firstName}
               onChange={(e) => updateUser({ firstName: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-            <input
-              type="text"
-              placeholder="Фамилия"
-              value={user.lastName}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <input type="text" placeholder="Фамилия" value={user.lastName}
               onChange={(e) => updateUser({ lastName: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-            <input
-              type="text"
-              placeholder="Город"
-              value={user.city}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <input type="text" placeholder="Город" value={user.city}
               onChange={(e) => updateUser({ city: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-            <input
-              type="number"
-              min="7"
-              max="100"
-              placeholder="Возраст"
-              value={user.age ?? ""}
-              onChange={(e) => updateUser({ age: e.target.value ? Number(e.target.value) : null })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-          </div>
-
-          <div className="mt-6">
-            <div className="toggle-pill">
-              <button
-                className={user.role === "student" ? "active" : ""}
-                onClick={() => updateUser({ role: "student", course: user.course.includes("класс") ? "1 курс" : user.course })}
-              >
-                Я студент
-              </button>
-              <button
-                className={user.role === "pupil" ? "active" : ""}
-                onClick={() => updateUser({ role: "pupil", course: user.course.includes("курс") ? "7 класс" : user.course })}
-              >
-                Я ученик
-              </button>
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <div className="pt-4">
+              <p className="text-sm font-semibold mb-3">Кто ты?</p>
+              <div className="flex gap-3">
+                <button onClick={() => updateUser({ role: "student" })}
+                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${user.role === "student" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                  Я студент
+                </button>
+                <button onClick={() => updateUser({ role: "pupil" })}
+                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${user.role === "pupil" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                  Я ученик
+                </button>
+              </div>
             </div>
           </div>
-
           <div className="mt-auto pb-8 pt-6">
-            <button
-              className="btn-green"
+            <button className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => setScreen("about-step2")}
-              disabled={!user.firstName || !user.lastName}
-            >
+              disabled={!user.firstName || !user.lastName || !user.city}>
               Далее
             </button>
           </div>
@@ -113,95 +118,59 @@ function AboutFormSteps() {
 
       {step === "about-step2" && (
         <div className="flex-1 flex flex-col animate-slide-in-right">
-          <h2 className="text-2xl font-bold text-center mb-2">Привет</h2>
-          <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
-            Расскажи нам о себе, чтобы мы лучше понимали, с кем тебе будет комфортно учиться
-          </p>
-
+          <h2 className="text-2xl font-bold text-center mb-2">Образование</h2>
+          <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">Расскажи о своем образовании</p>
           <div className="space-y-5">
-            <div className="toggle-pill mb-4">
-              <button
-                className={user.role === "student" ? "active" : ""}
-                onClick={() => updateUser({ role: "student", course: user.course.includes("класс") ? "1 курс" : user.course })}
-              >
-                Я студент
-              </button>
-              <button
-                className={user.role === "pupil" ? "active" : ""}
-                onClick={() => updateUser({ role: "pupil", course: user.course.includes("курс") ? "7 класс" : user.course })}
-              >
-                Я ученик
-              </button>
-            </div>
-
-            <input
-              type="text"
-              placeholder={isPupil ? "Название школы" : "Название университета"}
-              value={user.university}
+            <input type="text" placeholder="Название университета" value={user.university}
               onChange={(e) => updateUser({ university: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-            <input
-              type="text"
-              placeholder={isPupil ? "Профиль обучения" : "Программа обучения"}
-              value={user.program}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <input type="text" placeholder="Программа обучения" value={user.program}
               onChange={(e) => updateUser({ program: e.target.value })}
-              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-            />
-
-            <CourseSelector
-              role={user.role}
-              value={user.course}
-              onChange={(course) => updateUser({ course })}
-            />
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+            <CourseSelector value={user.course} onChange={(course) => updateUser({ course })} />
           </div>
-
-          <div className="mt-auto pb-8 pt-6">
-            <button className="btn-green" onClick={() => setScreen("about-step3")}>
-              Далее
-            </button>
+          <div className="mt-auto pb-8 pt-6 space-y-3">
+            <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
+              onClick={() => setScreen("about-step3")}>Далее</button>
+            <button className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold"
+              onClick={() => setScreen("about-step1")}>Назад</button>
           </div>
         </div>
       )}
 
       {step === "about-step3" && (
         <div className="flex-1 flex flex-col animate-slide-in-right">
-          <h2 className="text-2xl font-bold text-center mb-2">Тг или вк?</h2>
-          <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
-            Выбери предпочтительный мессенджер для общения со Study Buddy
-          </p>
-
-          <div className="toggle-pill mb-8">
-            <button
-              className={user.messenger === "telegram" ? "active" : ""}
-              onClick={() => updateUser({ messenger: "telegram" })}
-            >
-              Telegram
-            </button>
-            <button
-              className={user.messenger === "vk" ? "active" : ""}
-              onClick={() => updateUser({ messenger: "vk" })}
-            >
-              VK
-            </button>
+          <h2 className="text-2xl font-bold text-center mb-2">Контакты</h2>
+          <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">Как с тобой связаться?</p>
+          <div className="space-y-5">
+            <div>
+              <p className="text-sm font-semibold mb-3">Мессенджер</p>
+              <div className="flex gap-3">
+                <button onClick={() => updateUser({ messenger: "telegram" })}
+                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${user.messenger === "telegram" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                  Telegram
+                </button>
+                <button onClick={() => updateUser({ messenger: "vk" })}
+                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${user.messenger === "vk" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                  VK
+                </button>
+              </div>
+            </div>
+            <input type="text"
+              placeholder={user.messenger === "telegram" ? "@username" : "vk.com/username"}
+              value={user.messengerHandle}
+              onChange={(e) => updateUser({ messengerHandle: e.target.value })}
+              className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
           </div>
-
-          <input
-            type="text"
-            placeholder={user.messenger === "telegram" ? "@username" : "vk.com/id"}
-            value={user.messengerHandle}
-            onChange={(e) => updateUser({ messengerHandle: e.target.value })}
-            className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base"
-          />
-
-          <div className="mt-auto pb-8 pt-6">
-            <button
-              className="btn-green"
-              onClick={() => setScreen("about-congrats")}
-              disabled={!user.messengerHandle}
-            >
-              Далее
+          {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
+          <div className="mt-auto pb-8 pt-6 space-y-3">
+            <button className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleFinish}
+              disabled={!user.messengerHandle || loading}>
+              {loading ? "Сохраняем..." : "Готово"}
             </button>
+            <button className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold"
+              onClick={() => setScreen("about-step2")}>Назад</button>
           </div>
         </div>
       )}
@@ -209,156 +178,66 @@ function AboutFormSteps() {
   )
 }
 
-function CourseSelector({
-  role,
-  value,
-  onChange,
-}: {
-  role: "student" | "pupil"
-  value: string
-  onChange: (v: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const courses =
-    role === "pupil"
-      ? ["7 класс", "8 класс", "9 класс", "10 класс", "11 класс"]
-      : ["1 курс", "2 курс", "3 курс", "4 курс", "5 курс"]
-
+function CourseSelector({ value, onChange }: { value: string; onChange: (course: string) => void }) {
+  const courses = ["1 курс", "2 курс", "3 курс", "4 курс", "5 курс", "6 курс"]
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full py-3 border-b border-gray-200 text-base"
-      >
-        <span className={value ? "text-black" : "text-gray-400"}>
-          {value || (role === "pupil" ? "Класс" : "Курс")}
-        </span>
-        <ChevronLeft className="w-4 h-4 -rotate-90 text-gray-400" />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl mt-1 z-10 shadow-lg overflow-hidden">
-          {courses.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => { onChange(c); setOpen(false) }}
-              className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors ${value === c ? "bg-[var(--green-light)] font-semibold" : ""}`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-      )}
+    <div>
+      <p className="text-sm font-semibold mb-2">Курс</p>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full py-3 px-4 border border-gray-200 rounded-lg focus:border-black outline-none transition-colors text-base">
+        {courses.map((course) => (
+          <option key={course} value={course}>{course}</option>
+        ))}
+      </select>
     </div>
   )
 }
 
 function CongratsScreen() {
   const { setScreen } = useApp()
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh px-6 animate-bounce-in">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="w-48 h-48 relative mb-6">
-          <Image src="/mascot.png" alt="Mascot" fill className="object-contain" />
-        </div>
-        <h2 className="text-2xl font-bold text-center mb-3">Отлично!</h2>
-        <p className="text-sm text-gray-500 text-center leading-relaxed max-w-[260px]">
-          Теперь мы знаем, как тебя зовут. Расскажи о своей цели, которую ты хочешь достичь со Study Buddy.
-        </p>
-      </div>
-      <div className="w-full pb-8 flex gap-3">
-        <button className="btn-outline-gray flex-1" onClick={() => setScreen("main")}>Позже</button>
-        <button className="btn-green flex-1" onClick={() => setScreen("about-goal")}>Далее</button>
-      </div>
+    <div className="flex flex-col min-h-dvh items-center justify-center px-6">
+      <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-6 object-contain" />
+      <h2 className="text-2xl font-bold mb-2 text-center">Отлично!</h2>
+      <p className="text-sm text-gray-500 text-center mb-8">Теперь давай заполним анкету о твоих предпочтениях</p>
+      <button onClick={() => setScreen("survey1")} className="btn-green !w-auto px-8">Дальше</button>
     </div>
   )
 }
 
-function GoalScreen({ backTo, nextTo }: { backTo: AppScreen; nextTo: AppScreen }) {
-  const { state, setScreen, addStudyGoal, saveProfile, loadProfile, loadCandidates } = useApp()
+function GoalScreen() {
+  const { state, setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
-  const [saving, setSaving] = useState(false)
 
-  const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
-
-  const handleNext = async () => {
-    if (goalName) {
-      const goal = {
-        id: Date.now().toString(),
-        name: goalName,
-        description: goalDesc,
-        startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
-      }
-
-      addStudyGoal(goal)
-
-      if (nextTo === "main") {
-        setSaving(true)
-        try {
-          const updatedGoals = [...state.user.studyGoals, goal]
-          await saveProfile({
-            studyGoals: updatedGoals,
-            bio: goal.description || state.user.bio,
-          })
-          await Promise.all([loadProfile(), loadCandidates()])
-        } finally {
-          setSaving(false)
-        }
-      }
-    }
-    setScreen(nextTo)
+  const handleAddGoal = () => {
+    if (!goalName.trim()) return
+    addStudyGoal({ id: Date.now().toString(), name: goalName, description: goalDesc, startDate: new Date().toLocaleDateString("ru-RU") })
+    setGoalName("")
+    setGoalDesc("")
+    setScreen("main")
   }
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
       <div className="flex items-center justify-between h-14 mt-2">
-        <button onClick={() => setScreen(backTo)} className="p-1" aria-label="Back">
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <span className="text-base font-semibold">Анкета о тебе</span>
+        <button onClick={() => setScreen("main")} className="p-1" aria-label="Back"><ChevronLeft className="w-6 h-6" /></button>
+        <span className="text-base font-semibold">Новая цель</span>
         <div className="w-8" />
       </div>
-
       <div className="flex-1 flex flex-col">
-        <h2 className="text-2xl font-bold text-center mb-2">Поставь цели</h2>
-        <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
-          Расскажи, что бы ты хотел изучать вместе со своим бадди. Опиши подробно, к чему хочешь подготовиться и что будешь изучать.
-        </p>
-
-        <div className="space-y-4 mb-6">
-          <div className="relative">
-            <select
-              value={goalName}
-              onChange={(e) => setGoalName(e.target.value)}
-              className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors"
-            >
-              <option value="">Твоя учебная цель</option>
-              {goalOptions.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-            <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
-          </div>
-
-          <textarea
-            placeholder="Опиши подробности для напарника"
-            value={goalDesc}
+        <h2 className="text-2xl font-bold text-center mb-8">Какая у тебя цель?</h2>
+        <div className="space-y-5">
+          <input type="text" placeholder="Название цели (например, IELTS)" value={goalName}
+            onChange={(e) => setGoalName(e.target.value)}
+            className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base" />
+          <textarea placeholder="Описание (опционально)" value={goalDesc}
             onChange={(e) => setGoalDesc(e.target.value)}
-            rows={3}
-            className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base resize-none focus:border-black outline-none transition-colors"
-          />
+            className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base resize-none" rows={3} />
         </div>
-
-        <div className="mt-auto pb-8 flex gap-3">
-          <button className="btn-outline-gray flex-1" onClick={() => setScreen(nextTo)}>
-            Позже
-          </button>
-          <button className="btn-green flex-1" onClick={() => void handleNext()} disabled={saving}>
-            {saving ? "Сохраняем..." : "Далее"}
-          </button>
+        <div className="mt-auto pb-8 pt-6">
+          <button className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleAddGoal} disabled={!goalName.trim()}>Добавить цель</button>
         </div>
       </div>
     </div>
@@ -367,26 +246,12 @@ function GoalScreen({ backTo, nextTo }: { backTo: AppScreen; nextTo: AppScreen }
 
 function Congrats2Screen() {
   const { setScreen } = useApp()
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh px-6 animate-bounce-in">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="w-48 h-48 relative mb-6">
-          <Image src="/mascot.png" alt="Mascot" fill className="object-contain" />
-        </div>
-        <h2 className="text-2xl font-bold text-center mb-3">Отлично!</h2>
-        <p className="text-sm text-gray-500 text-center leading-relaxed max-w-[260px]">
-          Осталось заполнить свои предпочтения по стилю обучения и пожелания к бадди
-        </p>
-      </div>
-      <div className="w-full pb-8 flex gap-3">
-        <button className="btn-outline-gray flex-1" onClick={() => setScreen("main")}>
-          Позже
-        </button>
-        <button className="btn-green flex-1" onClick={() => setScreen("survey1")}>
-          Далее
-        </button>
-      </div>
+    <div className="flex flex-col min-h-dvh items-center justify-center px-6">
+      <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-6 object-contain" />
+      <h2 className="text-2xl font-bold mb-2 text-center">Готово!</h2>
+      <p className="text-sm text-gray-500 text-center mb-8">Теперь ты можешь начать искать бадди</p>
+      <button onClick={() => setScreen("main")} className="btn-green !w-auto px-8">На главную</button>
     </div>
   )
 }
