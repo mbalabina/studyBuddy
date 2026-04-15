@@ -42,7 +42,7 @@ function AboutFormSteps() {
         course: user.course,
         messengerHandle: user.messengerHandle,
       })
-      setScreen("about-congrats")
+      setScreen("about-goal")
     } catch (e: any) {
       setError(e.message || "Ошибка сохранения")
     } finally {
