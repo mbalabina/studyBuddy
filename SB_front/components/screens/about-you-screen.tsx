@@ -218,20 +218,22 @@ function CongratsScreen() {
 }
 
 function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
-  const { setScreen, addStudyGoal } = useApp()
+  const { setScreen, addStudyGoal, saveProfile } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
 
   const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (goalName) {
-      addStudyGoal({
+      const goal = {
         id: Date.now().toString(),
         name: goalName,
         description: goalDesc,
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
-      })
+      }
+      addStudyGoal(goal)
+      await saveProfile({ studyGoals: [goal] })
     }
     setScreen(nextTo as any)
   }
