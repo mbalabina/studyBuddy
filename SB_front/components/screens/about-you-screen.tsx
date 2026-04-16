@@ -221,18 +221,31 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
   const { setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
 
   const handleNext = async () => {
-    if (goalName) {
+    if (!goalName) {
+      setScreen(nextTo as any)
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(null)
+    try {
       await addStudyGoal({
         name: goalName,
         description: goalDesc,
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
       })
+      setScreen(nextTo as any)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Не удалось добавить цель")
+    } finally {
+      setIsSubmitting(false)
     }
-    setScreen(nextTo as any)
   }
 
   return (
@@ -262,9 +275,13 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
             onChange={(e) => setGoalDesc(e.target.value)}
             className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base resize-none" rows={3} />
         </div>
+        {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
         <div className="mt-auto pb-8 pt-6">
           <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
-            onClick={() => void handleNext()}>Далее</button>
+            onClick={() => void handleNext()}
+            disabled={isSubmitting}>
+            {isSubmitting ? "Сохраняем..." : "Далее"}
+          </button>
         </div>
       </div>
     </div>

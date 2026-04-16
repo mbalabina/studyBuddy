@@ -18,6 +18,22 @@ function normalizeGoalValue(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+async function getGoalSimilarity(selectedGoalName: string, candidateGoalName: string): Promise<number> {
+  const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName);
+  const normalizedCandidateGoal = normalizeGoalValue(candidateGoalName);
+
+  if (!normalizedSelectedGoal || !normalizedCandidateGoal) {
+    return 0.5;
+  }
+
+  // Быстрый путь: для строгого фильтра по целям совпадение уже точное
+  if (normalizedSelectedGoal === normalizedCandidateGoal) {
+    return 1;
+  }
+
+  return compareGoals(selectedGoalName, candidateGoalName);
+}
+
 /**
  * Алгоритм совместимости двух пользователей.
  *
@@ -340,9 +356,7 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
         const matchedGoalName = matchedGoal?.name?.trim() || profile?.studyGoal || "";
         const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
 
-        const goalSimilarity = matchedGoalName
-          ? await compareGoals(selectedGoalName, matchedGoalName)
-          : 0.5;
+        const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
 
         const profileForCompatibility = profile
           ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
@@ -713,10 +727,7 @@ export const appRouter = router({
         const matchedGoalDescription = matchedGoal?.description ?? profile.bio ?? "";
 
         const isFavorite = await db.isFavorite(ctx.user!.userId, input.candidateId, selectedGoalId);
-        const goalSimilarity = await compareGoals(
-          selectedGoalName,
-          matchedGoalName,
-        );
+        const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
 
         const profileForCompatibility = {
           ...profile,
@@ -817,9 +828,7 @@ export const appRouter = router({
               ) ?? null;
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
-            const goalSimilarity = matchedGoalName
-              ? await compareGoals(selectedGoalName, matchedGoalName)
-              : 0.5;
+            const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
             const profileForCompatibility = profile
               ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
               : null;
@@ -893,9 +902,7 @@ export const appRouter = router({
               ) ?? null;
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
-            const goalSimilarity = matchedGoalName
-              ? await compareGoals(selectedGoalName, matchedGoalName)
-              : 0.5;
+            const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
             const profileForCompatibility = profile
               ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
               : null;

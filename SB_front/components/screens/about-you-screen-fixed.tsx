@@ -287,19 +287,29 @@ function GoalScreen() {
   const { state, setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleAddGoal = async () => {
     if (!goalName.trim()) return
+    setIsSubmitting(true)
+    setError(null)
 
-    await addStudyGoal({
-      name: goalName,
-      description: goalDesc,
-      startDate: new Date().toLocaleDateString("ru-RU"),
-    })
+    try {
+      await addStudyGoal({
+        name: goalName,
+        description: goalDesc,
+        startDate: new Date().toLocaleDateString("ru-RU"),
+      })
 
-    setGoalName("")
-    setGoalDesc("")
-    setScreen("main")
+      setGoalName("")
+      setGoalDesc("")
+      setScreen("main")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Не удалось добавить цель")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -331,14 +341,15 @@ function GoalScreen() {
             rows={3}
           />
         </div>
+        {error && <p className="text-sm text-red-500 mt-4">{error}</p>}
 
         <div className="mt-auto pb-8 pt-6">
           <button
             className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => void handleAddGoal()}
-            disabled={!goalName.trim()}
+            disabled={!goalName.trim() || isSubmitting}
           >
-            Добавить цель
+            {isSubmitting ? "Сохраняем..." : "Добавить цель"}
           </button>
         </div>
       </div>
