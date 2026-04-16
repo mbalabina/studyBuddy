@@ -11,6 +11,7 @@ export default function SearchIntroScreen() {
   const {
     state,
     setScreen,
+    setState,
     loadCandidates,
     loadFavoriteCandidates,
     loadAdmirerCandidates,
@@ -42,6 +43,20 @@ export default function SearchIntroScreen() {
   }
 
   const goals = state.user.studyGoals
+  const activeGoalName = goals[state.currentGoalIndex]?.name?.trim() || ""
+  const canSearchByGoal = Boolean(activeGoalName)
+
+  const handleGoalSelect = (goalIndex: number) => {
+    const selectedGoal = goals[goalIndex]?.name
+    if (!selectedGoal) return
+
+    setState((prev) => ({
+      ...prev,
+      currentGoalIndex: goalIndex,
+    }))
+
+    loadCandidates(selectedGoal).catch(console.error)
+  }
 
   return (
     <div className="flex flex-col min-h-dvh animate-fade-in">
@@ -54,10 +69,15 @@ export default function SearchIntroScreen() {
       </div>
 
       <div className="flex items-center gap-2 px-6 mt-1 mb-5 overflow-x-auto">
-        {goals.map((goal) => (
+        {goals.map((goal, goalIndex) => (
           <button
             key={goal.id}
-            className="px-4 py-1.5 rounded-full border border-black text-sm font-medium whitespace-nowrap"
+            onClick={() => handleGoalSelect(goalIndex)}
+            className={`px-4 py-1.5 rounded-full border text-sm font-medium whitespace-nowrap transition-colors ${
+              goals[state.currentGoalIndex]?.id === goal.id
+                ? "border-black bg-black text-white"
+                : "border-black text-black"
+            }`}
           >
             {goal.name}
           </button>
@@ -81,13 +101,15 @@ export default function SearchIntroScreen() {
         <button
           className="w-full bg-[var(--green-light)] rounded-3xl p-5 text-left"
           onClick={() => setScreen("search-card")}
-          disabled={state.isLoadingCandidates}
+          disabled={state.isLoadingCandidates || !canSearchByGoal}
         >
           <p className="text-lg font-bold mb-1">
             {state.isLoadingCandidates ? "Загружаем..." : "Просмотр кандидатов"}
           </p>
           <p className="text-sm text-gray-600">
-            Посмотри подобранных для тебя кандидатов и найди своего бадди!
+            {canSearchByGoal
+              ? "Посмотри подобранных для тебя кандидатов и найди своего бадди!"
+              : "Сначала выбери главную цель для строгого подбора."}
           </p>
         </button>
 
@@ -164,6 +186,10 @@ export function CandidateCardScreen() {
   const { state, setScreen, likeCurrent, rejectCurrent } = useApp()
 
   const candidate = state.candidates[state.currentCandidateIndex]
+  const goals = state.user.studyGoals
+  const activeGoalName = goals[state.currentGoalIndex]?.name?.trim() || ""
+  const hasGoals = goals.length > 0
+  const hasActiveGoal = Boolean(activeGoalName)
 
   if (state.isLoadingCandidates) {
     return (
@@ -183,6 +209,17 @@ export function CandidateCardScreen() {
   }
 
   if (!candidate) {
+    const emptyTitle = !hasGoals
+      ? "Сначала добавь цель"
+      : !hasActiveGoal
+        ? "Выбери главную цель"
+        : `Нет совпадений по цели «${activeGoalName}»`
+    const emptyDescription = !hasGoals
+      ? "Без учебной цели мы не можем подобрать кандидатов."
+      : !hasActiveGoal
+        ? "Подбор работает только по выбранной главной цели."
+        : "Попробуй выбрать другую цель в поиске или зайди позже."
+
     return (
       <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
         <div className="flex items-center justify-between h-14 mt-2">
@@ -194,12 +231,15 @@ export function CandidateCardScreen() {
         </div>
         <div className="flex-1 flex flex-col items-center justify-center text-center">
           <div className="bg-[var(--green-light)] rounded-3xl p-6 w-full">
-            <h2 className="text-xl font-bold mb-2">Кандидаты закончились</h2>
+            <h2 className="text-xl font-bold mb-2">{emptyTitle}</h2>
             <p className="text-sm text-gray-600 mb-6">
-              Попробуй зайти позже или обновить подборку.
+              {emptyDescription}
             </p>
-            <button className="btn-green" onClick={() => setScreen("search-intro")}>
-              Назад
+            <button
+              className="btn-green"
+              onClick={() => setScreen(hasGoals ? "search-intro" : "new-goal")}
+            >
+              {hasGoals ? "Выбрать цель" : "Добавить цель"}
             </button>
           </div>
         </div>

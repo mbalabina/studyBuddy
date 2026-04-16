@@ -81,7 +81,7 @@ export const profileAPI = {
 }
 
 export const matchingAPI = {
-  getCandidates: (params?: { limit?: number; offset?: number }) =>
+  getCandidates: (params?: { limit?: number; offset?: number; goal?: string }) =>
     callTRPC({ method: "query", procedure: "matching.getCandidates", input: params }),
   getCandidate: (candidateId: number) =>
     callTRPC({ method: "query", procedure: "matching.getCandidate", input: { candidateId } }),

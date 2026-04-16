@@ -7,7 +7,7 @@ import { Plus, LogOut } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
 
 export default function HomeScreen() {
-  const { state, setScreen, logout } = useApp()
+  const { state, setScreen, setState, logout } = useApp()
   const user = state.user
   const goals = user.studyGoals
 
@@ -66,14 +66,20 @@ export default function HomeScreen() {
         {/* Цели */}
         {goals.length > 0 ? (
           <div className="space-y-4">
-            {goals.map((goal) => (
+            {goals.map((goal, goalIndex) => (
               <div key={goal.id} className="w-full bg-[var(--green-light)] rounded-2xl p-4">
                 <h3 className="text-xl font-bold mb-1">{goal.name}</h3>
                 {goal.description && (
                   <p className="text-sm text-gray-600 mb-3">{goal.description}</p>
                 )}
                 <button
-                  onClick={() => setScreen("search-intro")}
+                  onClick={() =>
+                    setState((prev) => ({
+                      ...prev,
+                      currentGoalIndex: goalIndex,
+                      screen: "search-intro",
+                    }))
+                  }
                   className="btn-green text-sm !py-2 !rounded-lg"
                 >
                   Найти бадди

@@ -122,7 +122,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, telegram?: string) => Promise<void>
   logout: () => Promise<void>
-  loadCandidates: () => Promise<void>
+  loadCandidates: (goalOverride?: string) => Promise<void>
   loadFavoriteCandidates: () => Promise<void>
   loadAdmirerCandidates: () => Promise<void>
   loadProfile: () => Promise<void>
@@ -240,7 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 
   // ========== ЗАГРУЗКА КАНДИДАТОВ ==========
-  const loadCandidatesForSession = useCallback(async (sessionVersion: number) => {
+  const loadCandidatesForSession = useCallback(async (sessionVersion: number, goalOverride?: string) => {
     setStateForSession(sessionVersion, (prev) => ({
       ...prev,
       isLoadingCandidates: true,
@@ -248,7 +248,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      const data = await matchingAPI.getCandidates({ limit: 50, offset: 0 })
+      const selectedGoal = goalOverride?.trim() || stateRef.current.user.studyGoals[stateRef.current.currentGoalIndex]?.name?.trim()
+      const data = await matchingAPI.getCandidates({ limit: 50, offset: 0, goal: selectedGoal || undefined })
       const list: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
 
       setStateForSession(sessionVersion, (prev) => ({
@@ -270,8 +271,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setStateForSession])
 
-  const loadCandidates = useCallback(() => {
-    return loadCandidatesForSession(sessionVersionRef.current)
+  const loadCandidates = useCallback((goalOverride?: string) => {
+    return loadCandidatesForSession(sessionVersionRef.current, goalOverride)
   }, [loadCandidatesForSession])
 
   const loadFavoriteCandidatesForSession = useCallback(async (sessionVersion: number) => {

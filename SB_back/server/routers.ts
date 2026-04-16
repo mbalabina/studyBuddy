@@ -151,6 +151,7 @@ const searchInput = z.object({
   city: z.string().trim().optional(),
   subject: z.string().trim().optional(),
   proficiencyLevel: z.string().trim().optional(),
+  goal: z.string().trim().optional(),
   minAge: z.number().int().min(0).optional(),
   maxAge: z.number().int().min(0).optional(),
   onlyCompleteProfiles: z.boolean().default(true),
@@ -158,8 +159,133 @@ const searchInput = z.object({
   offset: z.number().int().min(0).default(0),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const appRouter: any = router({
+type SearchUsersInput = z.infer<typeof searchInput>;
+
+async function searchUsersCore(params: { currentUserId: number; input: SearchUsersInput }) {
+  const { currentUserId, input } = params;
+
+  const [currentProfile, currentPreferences, allUsers, allProfiles, favoriteIds] =
+    await Promise.all([
+      db.getProfile(currentUserId),
+      db.getPreferences(currentUserId),
+      db.getAllUsers(),
+      db.getAllProfiles(),
+      db.getUserFavorites(currentUserId),
+    ]);
+
+  const favoritesSet = new Set(favoriteIds);
+  const profileMap = new Map(allProfiles.map((item) => [item.userId, item]));
+  const normalizedQuery = input.query?.toLowerCase();
+  const normalizedCity = input.city?.toLowerCase();
+  const normalizedSubject = input.subject?.toLowerCase();
+  const normalizedLevel = input.proficiencyLevel?.toLowerCase();
+  const activeGoal = (input.goal ?? currentProfile?.studyGoal ?? "").trim().toLowerCase();
+
+  // Строгий режим: без выбранной/сохраненной основной цели подборка пуста
+  if (!activeGoal) {
+    return {
+      items: [],
+      total: 0,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  const filtered = allUsers
+    .filter((user) => user.id !== currentUserId)
+    .filter((user) => (input.onlyCompleteProfiles ? user.isProfileComplete : true))
+    .map((user) => {
+      const profile = profileMap.get(user.id) ?? null;
+      return { user, profile };
+    })
+    .filter(({ user, profile }) => {
+      if (!profile) return !input.onlyCompleteProfiles;
+
+      if (normalizedQuery) {
+        const haystack = [
+          profile.firstName,
+          profile.lastName,
+          profile.city,
+          profile.studyGoal,
+          profile.bio,
+          profile.proficiencyLevel,
+          ...(normalizeStringArray(profile.subjects) || []),
+          user.email,
+          user.telegramUsername,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!haystack.includes(normalizedQuery)) return false;
+      }
+
+      if (normalizedCity && (profile.city || "").toLowerCase() !== normalizedCity) return false;
+
+      if (
+        normalizedSubject &&
+        !normalizeStringArray(profile.subjects).some((item) =>
+          item.toLowerCase().includes(normalizedSubject),
+        )
+      )
+        return false;
+
+      if (
+        normalizedLevel &&
+        (profile.proficiencyLevel || "").toLowerCase() !== normalizedLevel
+      )
+        return false;
+
+      if (typeof input.minAge === "number" && (profile.age ?? -1) < input.minAge) return false;
+      if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
+
+      // Hard filter: кандидат должен иметь цель, которая строго совпадает с активной целью
+      const candidateGoal = (profile.studyGoal || "").trim().toLowerCase();
+      if (!candidateGoal) return false;
+      if (candidateGoal !== activeGoal) return false;
+
+      return true;
+    });
+
+  // Запрашиваем Groq для всех кандидатов параллельно (кэш в groq.ts предотвращает дубли)
+  const items = (
+    await Promise.all(
+      filtered.map(async ({ user, profile }) => {
+        const goalSimilarity = profile?.studyGoal
+          ? await compareGoals(input.goal ?? currentProfile?.studyGoal ?? "", profile.studyGoal)
+          : 0.5;
+
+        const compatibility = profile
+          ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+          : 0;
+
+        return buildCandidateCard({
+          user,
+          profile,
+          compatibility,
+          isFavorite: favoritesSet.has(user.id),
+        });
+      }),
+    )
+  )
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => {
+      if (b.compatibility !== a.compatibility) return b.compatibility - a.compatibility;
+      return a.name.localeCompare(b.name);
+    });
+
+  const total = items.length;
+  const paginated = items.slice(input.offset, input.offset + input.limit);
+
+  return {
+    items: paginated,
+    total,
+    limit: input.limit,
+    offset: input.offset,
+  };
+}
+
+export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(async ({ ctx }) => {
@@ -376,115 +502,10 @@ export const appRouter: any = router({
 
   search: router({
     users: protectedProcedure.input(searchInput).query(async ({ input, ctx }) => {
-      const currentUserId = ctx.user!.userId;
-
-      const [currentProfile, currentPreferences, allUsers, allProfiles, favoriteIds] =
-        await Promise.all([
-          db.getProfile(currentUserId),
-          db.getPreferences(currentUserId),
-          db.getAllUsers(),
-          db.getAllProfiles(),
-          db.getUserFavorites(currentUserId),
-        ]);
-
-      const favoritesSet = new Set(favoriteIds);
-      const profileMap = new Map(allProfiles.map((item) => [item.userId, item]));
-      const normalizedQuery = input.query?.toLowerCase();
-      const normalizedCity = input.city?.toLowerCase();
-      const normalizedSubject = input.subject?.toLowerCase();
-      const normalizedLevel = input.proficiencyLevel?.toLowerCase();
-
-      const filtered = allUsers
-        .filter((user) => user.id !== currentUserId)
-        .filter((user) => (input.onlyCompleteProfiles ? user.isProfileComplete : true))
-        .map((user) => {
-          const profile = profileMap.get(user.id) ?? null;
-          return { user, profile };
-        })
-        .filter(({ user, profile }) => {
-          if (!profile) return !input.onlyCompleteProfiles;
-
-          if (normalizedQuery) {
-            const haystack = [
-              profile.firstName,
-              profile.lastName,
-              profile.city,
-              profile.studyGoal,
-              profile.bio,
-              profile.proficiencyLevel,
-              ...(normalizeStringArray(profile.subjects) || []),
-              user.email,
-              user.telegramUsername,
-            ]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase();
-
-            if (!haystack.includes(normalizedQuery)) return false;
-          }
-
-          if (normalizedCity && (profile.city || "").toLowerCase() !== normalizedCity) return false;
-
-          if (
-            normalizedSubject &&
-            !normalizeStringArray(profile.subjects).some((item) =>
-              item.toLowerCase().includes(normalizedSubject),
-            )
-          )
-            return false;
-
-          if (
-            normalizedLevel &&
-            (profile.proficiencyLevel || "").toLowerCase() !== normalizedLevel
-          )
-            return false;
-
-          if (typeof input.minAge === "number" && (profile.age ?? -1) < input.minAge) return false;
-          if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
-
-          // Hard filter: кандидат должен иметь цель и она должна совпадать
-          if (!profile.studyGoal) return false;
-          if (currentProfile?.studyGoal && profile.studyGoal !== currentProfile.studyGoal) return false;
-
-          return true;
-        });
-
-      // Запрашиваем Groq для всех кандидатов параллельно (кэш в groq.ts предотвращает дубли)
-      const items = (
-        await Promise.all(
-          filtered.map(async ({ user, profile }) => {
-            const goalSimilarity = profile?.studyGoal
-              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
-              : 0.5;
-
-            const compatibility = profile
-              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
-              : 0;
-
-            return buildCandidateCard({
-              user,
-              profile,
-              compatibility,
-              isFavorite: favoritesSet.has(user.id),
-            });
-          }),
-        )
-      )
-        .filter((item): item is NonNullable<typeof item> => Boolean(item))
-        .sort((a, b) => {
-          if (b.compatibility !== a.compatibility) return b.compatibility - a.compatibility;
-          return a.name.localeCompare(b.name);
-        });
-
-      const total = items.length;
-      const paginated = items.slice(input.offset, input.offset + input.limit);
-
-      return {
-        items: paginated,
-        total,
-        limit: input.limit,
-        offset: input.offset,
-      };
+      return searchUsersCore({
+        currentUserId: ctx.user!.userId,
+        input,
+      });
     }),
   }),
 
@@ -494,13 +515,18 @@ export const appRouter: any = router({
         z.object({
           limit: z.number().optional().default(50),
           offset: z.number().optional().default(0),
+          goal: z.string().trim().optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
-        const result = await (appRouter as any).createCaller(ctx).search.users({
-          limit: input.limit,
-          offset: input.offset,
-          onlyCompleteProfiles: true,
+        const result = await searchUsersCore({
+          currentUserId: ctx.user!.userId,
+          input: {
+            limit: input.limit,
+            offset: input.offset,
+            goal: input.goal,
+            onlyCompleteProfiles: true,
+          },
         });
 
         return result.items;

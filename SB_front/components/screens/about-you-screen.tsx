@@ -218,22 +218,20 @@ function CongratsScreen() {
 }
 
 function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
-  const { setScreen, addStudyGoal, saveProfile } = useApp()
+  const { setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
 
   const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
 
-  const handleNext = async () => {
+  const handleNext = () => {
     if (goalName) {
-      const goal = {
+      addStudyGoal({
         id: Date.now().toString(),
         name: goalName,
         description: goalDesc,
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
-      }
-      addStudyGoal(goal)
-      await saveProfile({ studyGoals: [goal] })
+      })
     }
     setScreen(nextTo as any)
   }
@@ -281,7 +279,7 @@ function Congrats2Screen() {
       <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-6 object-contain" />
       <h2 className="text-2xl font-bold mb-2 text-center">Готово!</h2>
       <p className="text-sm text-gray-500 text-center mb-8">Теперь ты можешь начать искать бадди</p>
-      <button onClick={() => setScreen(state.screen === "about-goal" ? "about-congrats2" : "main")} className="btn-green !w-auto px-8">На главную</button>
+      <button onClick={() => setScreen("main")} className="btn-green !w-auto px-8">На главную</button>
     </div>
   )
 }
