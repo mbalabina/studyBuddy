@@ -1,4 +1,19 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:3000"
+
+function normalizeApiUrl(url: string) {
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(url)) {
+    return url
+  }
+
+  const isLocalHost =
+    url.startsWith("localhost") ||
+    url.startsWith("127.0.0.1") ||
+    url.startsWith("0.0.0.0")
+
+  return `${isLocalHost ? "http" : "https"}://${url}`
+}
+
+const API_URL = normalizeApiUrl(RAW_API_URL)
 
 async function callTRPC({
   method,

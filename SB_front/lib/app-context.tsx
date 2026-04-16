@@ -165,6 +165,10 @@ const defaultUser: UserProfile = {
 
 const AppContext = createContext<AppContextType | null>(null)
 
+function normalizeGoalValue(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase()
+}
+
 function createAccountScopedDefaults() {
   return {
     user: defaultUser,
@@ -250,7 +254,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const selectedGoal = goalOverride?.trim() || stateRef.current.user.studyGoals[stateRef.current.currentGoalIndex]?.name?.trim()
       const data = await matchingAPI.getCandidates({ limit: 50, offset: 0, goal: selectedGoal || undefined })
-      const list: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
+      const rawList: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
+      const normalizedSelectedGoal = normalizeGoalValue(selectedGoal)
+      const list = normalizedSelectedGoal
+        ? rawList.filter((candidate) => normalizeGoalValue(candidate.goal) === normalizedSelectedGoal)
+        : []
 
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
