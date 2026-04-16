@@ -6,6 +6,8 @@ const dbMocks = vi.hoisted(() => ({
   getAllUsers: vi.fn(),
   getAllProfiles: vi.fn(),
   getUserFavorites: vi.fn(),
+  ensureUserGoalsFromLegacyProfile: vi.fn(),
+  getGoalsByUserIds: vi.fn(),
 }));
 
 const compareGoalsMock = vi.hoisted(() => vi.fn());
@@ -42,6 +44,8 @@ describe("matching strict goal filter", () => {
 
     dbMocks.getPreferences.mockResolvedValue(null);
     dbMocks.getUserFavorites.mockResolvedValue([]);
+    dbMocks.ensureUserGoalsFromLegacyProfile.mockResolvedValue([]);
+    dbMocks.getGoalsByUserIds.mockResolvedValue([]);
     compareGoalsMock.mockResolvedValue(1);
   });
 
@@ -53,6 +57,8 @@ describe("matching strict goal filter", () => {
     dbMocks.getAllProfiles.mockResolvedValue([
       { userId: 2, studyGoal: "IELTS", firstName: "Alice" },
     ] as any);
+    dbMocks.ensureUserGoalsFromLegacyProfile.mockResolvedValue([]);
+    dbMocks.getGoalsByUserIds.mockResolvedValue([]);
 
     const caller = createCaller();
     const result = await caller.search.users({
@@ -78,6 +84,13 @@ describe("matching strict goal filter", () => {
       { userId: 3, studyGoal: "TOEFL", firstName: "Other" },
       { userId: 4, studyGoal: "", firstName: "Empty" },
     ] as any);
+    dbMocks.ensureUserGoalsFromLegacyProfile.mockResolvedValue([
+      { id: 11, userId: 1, name: "IELTS", description: "", isActive: true },
+    ] as any);
+    dbMocks.getGoalsByUserIds.mockResolvedValue([
+      { id: 21, userId: 2, name: "IELTS", description: "" },
+      { id: 22, userId: 3, name: "TOEFL", description: "" },
+    ] as any);
 
     const caller = createCaller();
     const result = await caller.search.users({
@@ -99,6 +112,13 @@ describe("matching strict goal filter", () => {
     dbMocks.getAllProfiles.mockResolvedValue([
       { userId: 2, studyGoal: "IELTS", firstName: "Ielts Candidate" },
       { userId: 3, studyGoal: "TOEFL", firstName: "Toefl Candidate" },
+    ] as any);
+    dbMocks.ensureUserGoalsFromLegacyProfile.mockResolvedValue([
+      { id: 11, userId: 1, name: "TOEFL", description: "", isActive: true },
+    ] as any);
+    dbMocks.getGoalsByUserIds.mockResolvedValue([
+      { id: 21, userId: 2, name: "IELTS", description: "" },
+      { id: 22, userId: 3, name: "TOEFL", description: "" },
     ] as any);
 
     const caller = createCaller();

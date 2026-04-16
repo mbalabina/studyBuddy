@@ -1,15 +1,18 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   users,
   profiles,
   preferences,
+  userStudyGoals,
   favorites,
   type InsertProfile,
   type InsertPreference,
+  type InsertUserStudyGoal,
   type User,
   type Profile,
   type Preference,
+  type UserStudyGoal,
   type Favorite,
 } from "../drizzle/schema";
 
@@ -19,6 +22,10 @@ function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> 
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as Partial<T>;
+}
+
+function normalizeGoalName(goal: string | null | undefined): string {
+  return (goal ?? "").trim().toLowerCase();
 }
 
 export async function getDb() {
@@ -135,6 +142,227 @@ export async function getProfile(userId: number): Promise<Profile | null> {
   return result[0] ?? null;
 }
 
+export async function getUserGoals(userId: number): Promise<UserStudyGoal[]> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user goals: database not available");
+    return [];
+  }
+
+  return await db
+    .select()
+    .from(userStudyGoals)
+    .where(eq(userStudyGoals.userId, userId))
+    .orderBy(desc(userStudyGoals.isActive), userStudyGoals.id);
+}
+
+export async function getGoalsByUserIds(userIds: number[]): Promise<UserStudyGoal[]> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get goals by user ids: database not available");
+    return [];
+  }
+
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  return await db
+    .select()
+    .from(userStudyGoals)
+    .where(inArray(userStudyGoals.userId, userIds))
+    .orderBy(desc(userStudyGoals.isActive), userStudyGoals.id);
+}
+
+export async function getUserGoalById(goalId: number): Promise<UserStudyGoal | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get goal by id: database not available");
+    return null;
+  }
+
+  const result = await db
+    .select()
+    .from(userStudyGoals)
+    .where(eq(userStudyGoals.id, goalId))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function getActiveUserGoal(userId: number): Promise<UserStudyGoal | null> {
+  const goals = await getUserGoals(userId);
+  if (goals.length === 0) return null;
+
+  return goals.find((goal) => goal.isActive) ?? goals[0] ?? null;
+}
+
+export async function createUserGoal(
+  userId: number,
+  data: {
+    name: string;
+    description?: string | null;
+    isActive?: boolean;
+  },
+): Promise<UserStudyGoal | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot create user goal: database not available");
+    return null;
+  }
+
+  const name = data.name.trim();
+  if (!name) {
+    throw new Error("Goal name cannot be empty");
+  }
+
+  const shouldActivate = Boolean(data.isActive);
+
+  try {
+    if (shouldActivate) {
+      await db
+        .update(userStudyGoals)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(userStudyGoals.userId, userId));
+    }
+
+    const payload: InsertUserStudyGoal = {
+      userId,
+      name,
+      description: data.description ?? null,
+      isActive: shouldActivate,
+    };
+
+    const result = await db.insert(userStudyGoals).values(payload);
+    const goalId = Number(result[0].insertId);
+    const goal = await getUserGoalById(goalId);
+
+    if (goal?.isActive) {
+      await upsertProfile(userId, {
+        studyGoal: goal.name,
+        bio: goal.description ?? undefined,
+      });
+    }
+
+    return goal;
+  } catch (error) {
+    console.error("[Database] Failed to create user goal:", error);
+    throw error;
+  }
+}
+
+export async function setActiveUserGoal(userId: number, goalId: number): Promise<UserStudyGoal | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot activate goal: database not available");
+    return null;
+  }
+
+  const goal = await getUserGoalById(goalId);
+  if (!goal || goal.userId !== userId) {
+    return null;
+  }
+
+  try {
+    await db
+      .update(userStudyGoals)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(userStudyGoals.userId, userId));
+
+    await db
+      .update(userStudyGoals)
+      .set({ isActive: true, updatedAt: new Date() })
+      .where(and(eq(userStudyGoals.userId, userId), eq(userStudyGoals.id, goalId)));
+
+    const activeGoal = await getUserGoalById(goalId);
+    if (activeGoal) {
+      await upsertProfile(userId, {
+        studyGoal: activeGoal.name,
+        bio: activeGoal.description ?? undefined,
+      });
+    }
+
+    return activeGoal;
+  } catch (error) {
+    console.error("[Database] Failed to activate goal:", error);
+    throw error;
+  }
+}
+
+export async function upsertUserGoalByName(
+  userId: number,
+  name: string,
+  description?: string | null,
+): Promise<UserStudyGoal | null> {
+  const normalizedName = normalizeGoalName(name);
+  if (!normalizedName) return null;
+
+  const goals = await getUserGoals(userId);
+  const existing = goals.find((goal) => normalizeGoalName(goal.name) === normalizedName) ?? null;
+
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot upsert goal by name: database not available");
+    return null;
+  }
+
+  try {
+    if (!existing) {
+      return await createUserGoal(userId, {
+        name: name.trim(),
+        description,
+        isActive: true,
+      });
+    }
+
+    await db
+      .update(userStudyGoals)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(userStudyGoals.userId, userId));
+
+    await db
+      .update(userStudyGoals)
+      .set({
+        name: name.trim(),
+        description: description ?? existing.description ?? null,
+        isActive: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(userStudyGoals.id, existing.id));
+
+    await upsertProfile(userId, {
+      studyGoal: name.trim(),
+      bio: description ?? undefined,
+    });
+
+    return await getUserGoalById(existing.id);
+  } catch (error) {
+    console.error("[Database] Failed to upsert goal by name:", error);
+    throw error;
+  }
+}
+
+export async function ensureUserGoalsFromLegacyProfile(userId: number): Promise<UserStudyGoal[]> {
+  const goals = await getUserGoals(userId);
+  if (goals.length > 0) {
+    return goals;
+  }
+
+  const profile = await getProfile(userId);
+  const legacyGoal = profile?.studyGoal?.trim();
+  if (!legacyGoal) {
+    return goals;
+  }
+
+  await createUserGoal(userId, {
+    name: legacyGoal,
+    description: profile?.bio ?? null,
+    isActive: true,
+  });
+
+  return await getUserGoals(userId);
+}
+
 export async function upsertPreferences(
   userId: number,
   data: Partial<Omit<InsertPreference, "userId">>,
@@ -184,7 +412,11 @@ export async function getPreferences(userId: number): Promise<Preference | null>
   return result[0] ?? null;
 }
 
-export async function addFavorite(userId: number, favoriteUserId: number): Promise<Favorite | null> {
+export async function addFavorite(
+  userId: number,
+  favoriteUserId: number,
+  goalId?: number,
+): Promise<Favorite | null> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot add favorite: database not available");
@@ -196,22 +428,31 @@ export async function addFavorite(userId: number, favoriteUserId: number): Promi
   }
 
   try {
+    const scopeCondition = typeof goalId === "number" ? eq(favorites.goalId, goalId) : undefined;
     const existing = await db
       .select()
       .from(favorites)
-      .where(and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)))
+      .where(
+        scopeCondition
+          ? and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId), scopeCondition)
+          : and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)),
+      )
       .limit(1);
 
     if (existing.length > 0) {
       return existing[0] ?? null;
     }
 
-    await db.insert(favorites).values({ userId, favoriteUserId });
+    await db.insert(favorites).values({ userId, favoriteUserId, goalId: goalId ?? null });
 
     const favorite = await db
       .select()
       .from(favorites)
-      .where(and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)))
+      .where(
+        scopeCondition
+          ? and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId), scopeCondition)
+          : and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)),
+      )
       .limit(1);
 
     return favorite[0] ?? null;
@@ -221,7 +462,11 @@ export async function addFavorite(userId: number, favoriteUserId: number): Promi
   }
 }
 
-export async function removeFavorite(userId: number, favoriteUserId: number): Promise<boolean> {
+export async function removeFavorite(
+  userId: number,
+  favoriteUserId: number,
+  goalId?: number,
+): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot remove favorite: database not available");
@@ -231,7 +476,11 @@ export async function removeFavorite(userId: number, favoriteUserId: number): Pr
   try {
     await db
       .delete(favorites)
-      .where(and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)));
+      .where(
+        typeof goalId === "number"
+          ? and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId), eq(favorites.goalId, goalId))
+          : and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)),
+      );
     return true;
   } catch (error) {
     console.error("[Database] Failed to remove favorite:", error);
@@ -239,18 +488,25 @@ export async function removeFavorite(userId: number, favoriteUserId: number): Pr
   }
 }
 
-export async function getUserFavorites(userId: number): Promise<number[]> {
+export async function getUserFavorites(userId: number, goalId?: number): Promise<number[]> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get favorites: database not available");
     return [];
   }
 
-  const result = await db.select().from(favorites).where(eq(favorites.userId, userId));
+  const result = await db
+    .select()
+    .from(favorites)
+    .where(
+      typeof goalId === "number"
+        ? and(eq(favorites.userId, userId), eq(favorites.goalId, goalId))
+        : eq(favorites.userId, userId),
+    );
   return result.map((item) => item.favoriteUserId);
 }
 
-export async function isFavorite(userId: number, favoriteUserId: number): Promise<boolean> {
+export async function isFavorite(userId: number, favoriteUserId: number, goalId?: number): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot check favorite: database not available");
@@ -260,23 +516,35 @@ export async function isFavorite(userId: number, favoriteUserId: number): Promis
   const result = await db
     .select()
     .from(favorites)
-    .where(and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)))
+    .where(
+      typeof goalId === "number"
+        ? and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId), eq(favorites.goalId, goalId))
+        : and(eq(favorites.userId, userId), eq(favorites.favoriteUserId, favoriteUserId)),
+    )
     .limit(1);
 
   return result.length > 0;
 }
 
-export async function getUserAdmirers(userId: number): Promise<User[]> {
+export async function getUserAdmirers(userId: number, goalId?: number): Promise<User[]> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get admirers: database not available");
     return [];
   }
 
-  const admirerIds = await db.select().from(favorites).where(eq(favorites.favoriteUserId, userId));
+  const admirerIds = await db
+    .select()
+    .from(favorites)
+    .where(
+      typeof goalId === "number"
+        ? and(eq(favorites.favoriteUserId, userId), eq(favorites.goalId, goalId))
+        : eq(favorites.favoriteUserId, userId),
+    );
   if (admirerIds.length === 0) return [];
 
-  return await db.select().from(users).where(inArray(users.id, admirerIds.map((item) => item.userId)));
+  const uniqueIds = Array.from(new Set(admirerIds.map((item) => item.userId)));
+  return await db.select().from(users).where(inArray(users.id, uniqueIds));
 }
 
 export async function getAllUsers(): Promise<User[]> {

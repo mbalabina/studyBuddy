@@ -14,6 +14,10 @@ function normalizeStringArray(value: JsonArrayValue): string[] {
   return [];
 }
 
+function normalizeGoalValue(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 /**
  * Алгоритм совместимости двух пользователей.
  *
@@ -111,8 +115,10 @@ function buildCandidateCard(params: {
   profile: Awaited<ReturnType<typeof db.getProfile>>;
   compatibility: number;
   isFavorite: boolean;
+  goal?: string;
+  goalDescription?: string;
 }) {
-  const { user, profile, compatibility, isFavorite } = params;
+  const { user, profile, compatibility, isFavorite, goal, goalDescription } = params;
 
   if (!user) {
     return null;
@@ -129,8 +135,8 @@ function buildCandidateCard(params: {
     age: profile?.age ?? null,
     city: profile?.city || "",
     compatibility,
-    goal: profile?.studyGoal || "",
-    goalDescription: profile?.bio || "",
+    goal: goal ?? (profile?.studyGoal || ""),
+    goalDescription: goalDescription ?? (profile?.bio || ""),
     bio: profile?.bio || "",
     proficiencyLevel: profile?.proficiencyLevel || "",
     subjects: normalizeStringArray(profile?.subjects),
@@ -152,6 +158,7 @@ const searchInput = z.object({
   subject: z.string().trim().optional(),
   proficiencyLevel: z.string().trim().optional(),
   goal: z.string().trim().optional(),
+  goalId: z.number().int().positive().optional(),
   minAge: z.number().int().min(0).optional(),
   maxAge: z.number().int().min(0).optional(),
   onlyCompleteProfiles: z.boolean().default(true),
@@ -161,28 +168,73 @@ const searchInput = z.object({
 
 type SearchUsersInput = z.infer<typeof searchInput>;
 
+function resolveSelectedGoal(params: {
+  input: SearchUsersInput;
+  currentGoals: Awaited<ReturnType<typeof db.getUserGoals>>;
+  currentProfile: Awaited<ReturnType<typeof db.getProfile>>;
+}) {
+  const { input, currentGoals, currentProfile } = params;
+
+  if (typeof input.goalId === "number") {
+    const selected = currentGoals.find((goal) => goal.id === input.goalId) ?? null;
+    if (!selected) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Goal does not belong to current user" });
+    }
+
+    return {
+      selectedGoalId: selected.id,
+      selectedGoalName: selected.name,
+      selectedGoalDescription: selected.description ?? "",
+    };
+  }
+
+  if (input.goal?.trim()) {
+    const selectedGoalName = input.goal.trim();
+    return {
+      selectedGoalId: undefined,
+      selectedGoalName,
+      selectedGoalDescription: "",
+    };
+  }
+
+  const activeGoal = currentGoals.find((goal) => goal.isActive) ?? currentGoals[0] ?? null;
+  if (activeGoal) {
+    return {
+      selectedGoalId: activeGoal.id,
+      selectedGoalName: activeGoal.name,
+      selectedGoalDescription: activeGoal.description ?? "",
+    };
+  }
+
+  return {
+    selectedGoalId: undefined,
+    selectedGoalName: currentProfile?.studyGoal ?? "",
+    selectedGoalDescription: currentProfile?.bio ?? "",
+  };
+}
+
 async function searchUsersCore(params: { currentUserId: number; input: SearchUsersInput }) {
   const { currentUserId, input } = params;
 
-  const [currentProfile, currentPreferences, allUsers, allProfiles, favoriteIds] =
+  const [currentProfile, currentPreferences, allUsers, allProfiles, currentGoals] =
     await Promise.all([
       db.getProfile(currentUserId),
       db.getPreferences(currentUserId),
       db.getAllUsers(),
       db.getAllProfiles(),
-      db.getUserFavorites(currentUserId),
+      db.ensureUserGoalsFromLegacyProfile(currentUserId),
     ]);
 
-  const favoritesSet = new Set(favoriteIds);
-  const profileMap = new Map(allProfiles.map((item) => [item.userId, item]));
-  const normalizedQuery = input.query?.toLowerCase();
-  const normalizedCity = input.city?.toLowerCase();
-  const normalizedSubject = input.subject?.toLowerCase();
-  const normalizedLevel = input.proficiencyLevel?.toLowerCase();
-  const activeGoal = (input.goal ?? currentProfile?.studyGoal ?? "").trim().toLowerCase();
+  const { selectedGoalId, selectedGoalName } = resolveSelectedGoal({
+    input,
+    currentGoals,
+    currentProfile,
+  });
+
+  const normalizedActiveGoal = normalizeGoalValue(selectedGoalName);
 
   // Строгий режим: без выбранной/сохраненной основной цели подборка пуста
-  if (!activeGoal) {
+  if (!normalizedActiveGoal) {
     return {
       items: [],
       total: 0,
@@ -190,6 +242,28 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
       offset: input.offset,
     };
   }
+
+  const candidateUserIds = allUsers
+    .filter((user) => user.id !== currentUserId)
+    .map((user) => user.id);
+
+  const [favoriteIds, allUserGoals] = await Promise.all([
+    db.getUserFavorites(currentUserId, selectedGoalId),
+    db.getGoalsByUserIds(candidateUserIds),
+  ]);
+
+  const favoritesSet = new Set(favoriteIds);
+  const profileMap = new Map(allProfiles.map((item) => [item.userId, item]));
+  const goalMap = new Map<number, Array<(typeof allUserGoals)[number]>>();
+  for (const goal of allUserGoals) {
+    const list = goalMap.get(goal.userId) ?? [];
+    list.push(goal);
+    goalMap.set(goal.userId, list);
+  }
+  const normalizedQuery = input.query?.toLowerCase();
+  const normalizedCity = input.city?.toLowerCase();
+  const normalizedSubject = input.subject?.toLowerCase();
+  const normalizedLevel = input.proficiencyLevel?.toLowerCase();
 
   const filtered = allUsers
     .filter((user) => user.id !== currentUserId)
@@ -210,6 +284,8 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
           profile.bio,
           profile.proficiencyLevel,
           ...(normalizeStringArray(profile.subjects) || []),
+          ...((goalMap.get(user.id) ?? []).map((goal) => goal.name)),
+          ...((goalMap.get(user.id) ?? []).map((goal) => goal.description || "")),
           user.email,
           user.telegramUsername,
         ]
@@ -240,9 +316,14 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
       if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
 
       // Hard filter: кандидат должен иметь цель, которая строго совпадает с активной целью
-      const candidateGoal = (profile.studyGoal || "").trim().toLowerCase();
-      if (!candidateGoal) return false;
-      if (candidateGoal !== activeGoal) return false;
+      const candidateGoals = (goalMap.get(user.id) ?? [])
+        .filter((goal) => normalizeGoalValue(goal.name))
+        .map((goal) => normalizeGoalValue(goal.name));
+      if (candidateGoals.length === 0 && profile?.studyGoal) {
+        candidateGoals.push(normalizeGoalValue(profile.studyGoal));
+      }
+      if (candidateGoals.length === 0) return false;
+      if (!candidateGoals.includes(normalizedActiveGoal)) return false;
 
       return true;
     });
@@ -251,12 +332,24 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
   const items = (
     await Promise.all(
       filtered.map(async ({ user, profile }) => {
-        const goalSimilarity = profile?.studyGoal
-          ? await compareGoals(input.goal ?? currentProfile?.studyGoal ?? "", profile.studyGoal)
+        const matchedGoal =
+          (goalMap.get(user.id) ?? []).find(
+            (goal) => normalizeGoalValue(goal.name) === normalizedActiveGoal,
+          ) ?? null;
+
+        const matchedGoalName = matchedGoal?.name?.trim() || profile?.studyGoal || "";
+        const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+
+        const goalSimilarity = matchedGoalName
+          ? await compareGoals(selectedGoalName, matchedGoalName)
           : 0.5;
 
-        const compatibility = profile
-          ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+        const profileForCompatibility = profile
+          ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
+          : null;
+
+        const compatibility = profileForCompatibility
+          ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
           : 0;
 
         return buildCandidateCard({
@@ -264,6 +357,8 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
           profile,
           compatibility,
           isFavorite: favoritesSet.has(user.id),
+          goal: matchedGoalName,
+          goalDescription: matchedGoalDescription,
         });
       }),
     )
@@ -391,16 +486,18 @@ export const appRouter = router({
 
   profile: router({
     getMe: protectedProcedure.query(async ({ ctx }) => {
-      const [user, profile, preferences] = await Promise.all([
+      const [user, profile, preferences, goals] = await Promise.all([
         db.getUserById(ctx.user!.userId),
         db.getProfile(ctx.user!.userId),
         db.getPreferences(ctx.user!.userId),
+        db.ensureUserGoalsFromLegacyProfile(ctx.user!.userId),
       ]);
 
       return {
         user: auth.toSafeUser(user),
         profile,
         preferences,
+        goals,
       };
     }),
 
@@ -453,6 +550,14 @@ export const appRouter = router({
             });
           }
 
+          if (input.studyGoal?.trim()) {
+            await db.upsertUserGoalByName(
+              ctx.user!.userId,
+              input.studyGoal,
+              input.bio,
+            );
+          }
+
           const preferences = await db.getPreferences(ctx.user!.userId);
           if (preferences) {
             await db.markProfileComplete(ctx.user!.userId);
@@ -500,6 +605,45 @@ export const appRouter = router({
       }),
   }),
 
+  goals: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return await db.ensureUserGoalsFromLegacyProfile(ctx.user!.userId);
+    }),
+
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1),
+          description: z.string().optional(),
+          makeActive: z.boolean().optional().default(true),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const goal = await db.createUserGoal(ctx.user!.userId, {
+          name: input.name,
+          description: input.description,
+          isActive: input.makeActive,
+        });
+
+        if (!goal) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create goal" });
+        }
+
+        return goal;
+      }),
+
+    setActive: protectedProcedure
+      .input(z.object({ goalId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const goal = await db.setActiveUserGoal(ctx.user!.userId, input.goalId);
+        if (!goal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+        }
+
+        return goal;
+      }),
+  }),
+
   search: router({
     users: protectedProcedure.input(searchInput).query(async ({ input, ctx }) => {
       return searchUsersCore({
@@ -516,6 +660,7 @@ export const appRouter = router({
           limit: z.number().optional().default(50),
           offset: z.number().optional().default(0),
           goal: z.string().trim().optional(),
+          goalId: z.number().int().positive().optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
@@ -525,6 +670,7 @@ export const appRouter = router({
             limit: input.limit,
             offset: input.offset,
             goal: input.goal,
+            goalId: input.goalId,
             onlyCompleteProfiles: true,
           },
         });
@@ -533,38 +679,71 @@ export const appRouter = router({
       }),
 
     getCandidate: protectedProcedure
-      .input(z.object({ candidateId: z.number() }))
+      .input(z.object({ candidateId: z.number(), goalId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
-        const [user, profile, currentProfile, currentPreferences, isFavorite] = await Promise.all([
+        const [user, profile, currentProfile, currentPreferences, currentGoals] = await Promise.all([
           db.getUserById(input.candidateId),
           db.getProfile(input.candidateId),
           db.getProfile(ctx.user!.userId),
           db.getPreferences(ctx.user!.userId),
-          db.isFavorite(ctx.user!.userId, input.candidateId),
+          db.ensureUserGoalsFromLegacyProfile(ctx.user!.userId),
         ]);
 
         if (!user || !profile) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Candidate not found" });
         }
 
+        const { selectedGoalId, selectedGoalName } = resolveSelectedGoal({
+          input: {
+            limit: 1,
+            offset: 0,
+            onlyCompleteProfiles: true,
+            goalId: input.goalId,
+          },
+          currentGoals,
+          currentProfile,
+        });
+
+        const candidateGoals = await db.getUserGoals(input.candidateId);
+        const matchedGoal =
+          candidateGoals.find(
+            (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
+          ) ?? null;
+        const matchedGoalName = matchedGoal?.name ?? profile.studyGoal ?? "";
+        const matchedGoalDescription = matchedGoal?.description ?? profile.bio ?? "";
+
+        const isFavorite = await db.isFavorite(ctx.user!.userId, input.candidateId, selectedGoalId);
         const goalSimilarity = await compareGoals(
-          currentProfile?.studyGoal || "",
-          profile.studyGoal || "",
+          selectedGoalName,
+          matchedGoalName,
         );
+
+        const profileForCompatibility = {
+          ...profile,
+          studyGoal: matchedGoalName,
+          bio: matchedGoalDescription,
+        };
 
         const compatibility = calculateCompatibility(
           currentProfile,
           currentPreferences,
-          profile,
+          profileForCompatibility,
           goalSimilarity,
         );
-        return buildCandidateCard({ user, profile, compatibility, isFavorite });
+        return buildCandidateCard({
+          user,
+          profile,
+          compatibility,
+          isFavorite,
+          goal: matchedGoalName,
+          goalDescription: matchedGoalDescription,
+        });
       }),
   }),
 
   favorites: router({
     like: protectedProcedure
-      .input(z.object({ candidateId: z.number() }))
+      .input(z.object({ candidateId: z.number(), goalId: z.number().int().positive().optional() }))
       .mutation(async ({ input, ctx }) => {
         if (input.candidateId === ctx.user!.userId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot like yourself" });
@@ -575,86 +754,161 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Candidate not found" });
         }
 
-        const favorite = await db.addFavorite(ctx.user!.userId, input.candidateId);
+        const favorite = await db.addFavorite(ctx.user!.userId, input.candidateId, input.goalId);
         return favorite;
       }),
 
     unlike: protectedProcedure
-      .input(z.object({ candidateId: z.number() }))
+      .input(z.object({ candidateId: z.number(), goalId: z.number().int().positive().optional() }))
       .mutation(async ({ input, ctx }) => {
-        await db.removeFavorite(ctx.user!.userId, input.candidateId);
+        await db.removeFavorite(ctx.user!.userId, input.candidateId, input.goalId);
         return { success: true };
       }),
 
-    getList: protectedProcedure.query(async ({ ctx }) => {
+    getList: protectedProcedure
+      .input(z.object({ goalId: z.number().int().positive().optional() }).optional())
+      .query(async ({ ctx, input }) => {
       const currentUserId = ctx.user!.userId;
 
-      const [favoriteIds, allUsers, allProfiles, currentProfile, currentPreferences] =
+      const [currentProfile, currentPreferences, currentGoals] =
         await Promise.all([
-          db.getUserFavorites(currentUserId),
-          db.getAllUsers(),
-          db.getAllProfiles(),
           db.getProfile(currentUserId),
           db.getPreferences(currentUserId),
+          db.ensureUserGoalsFromLegacyProfile(currentUserId),
         ]);
+
+      const selectedGoalId =
+        input?.goalId ?? currentGoals.find((goal) => goal.isActive)?.id ?? currentGoals[0]?.id;
+      const selectedGoalName =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.name ??
+        currentProfile?.studyGoal ??
+        "";
+
+      const [favoriteIds, allUsers, allProfiles] = await Promise.all([
+        db.getUserFavorites(currentUserId, selectedGoalId),
+        db.getAllUsers(),
+        db.getAllProfiles(),
+      ]);
+      const allGoals = await db.getGoalsByUserIds(
+        allUsers
+          .filter((u) => u.id !== currentUserId)
+          .map((u) => u.id),
+      );
 
       if (favoriteIds.length === 0) return [];
 
       const favSet = new Set(favoriteIds);
       const profileMap = new Map(allProfiles.map((p) => [p.userId, p]));
+      const goalMap = new Map<number, Array<(typeof allGoals)[number]>>();
+      for (const goal of allGoals) {
+        const list = goalMap.get(goal.userId) ?? [];
+        list.push(goal);
+        goalMap.set(goal.userId, list);
+      }
 
       const items = await Promise.all(
         allUsers
           .filter((u) => favSet.has(u.id))
           .map(async (user) => {
             const profile = profileMap.get(user.id) ?? null;
-            const goalSimilarity = profile?.studyGoal
-              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
+            const matchedGoal =
+              (goalMap.get(user.id) ?? []).find(
+                (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
+              ) ?? null;
+            const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
+            const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+            const goalSimilarity = matchedGoalName
+              ? await compareGoals(selectedGoalName, matchedGoalName)
               : 0.5;
-            const compatibility = profile
-              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+            const profileForCompatibility = profile
+              ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
+              : null;
+            const compatibility = profileForCompatibility
+              ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
               : 0;
-            return buildCandidateCard({ user, profile, compatibility, isFavorite: true });
+            return buildCandidateCard({
+              user,
+              profile,
+              compatibility,
+              isFavorite: true,
+              goal: matchedGoalName,
+              goalDescription: matchedGoalDescription,
+            });
           }),
       );
 
       return items.filter((item): item is NonNullable<typeof item> => Boolean(item));
     }),
 
-    getAdmirers: protectedProcedure.query(async ({ ctx }) => {
+    getAdmirers: protectedProcedure
+      .input(z.object({ goalId: z.number().int().positive().optional() }).optional())
+      .query(async ({ ctx, input }) => {
       const currentUserId = ctx.user!.userId;
 
-      const [admirerIds, allUsers, allProfiles, currentProfile, currentPreferences] =
+      const [currentProfile, currentPreferences, currentGoals] =
         await Promise.all([
-          db.getUserAdmirers(currentUserId),
-          db.getAllUsers(),
-          db.getAllProfiles(),
           db.getProfile(currentUserId),
           db.getPreferences(currentUserId),
+          db.ensureUserGoalsFromLegacyProfile(currentUserId),
         ]);
+
+      const selectedGoalId =
+        input?.goalId ?? currentGoals.find((goal) => goal.isActive)?.id ?? currentGoals[0]?.id;
+      const selectedGoalName =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.name ??
+        currentProfile?.studyGoal ??
+        "";
+
+      const [admirerIds, allUsers, allProfiles] = await Promise.all([
+        db.getUserAdmirers(currentUserId, selectedGoalId),
+        db.getAllUsers(),
+        db.getAllProfiles(),
+      ]);
+      const allGoals = await db.getGoalsByUserIds(
+        allUsers
+          .filter((u) => u.id !== currentUserId)
+          .map((u) => u.id),
+      );
 
       if (admirerIds.length === 0) return [];
 
       const admireSet = new Set(admirerIds.map((item) => item.id));
       const profileMap = new Map(allProfiles.map((p) => [p.userId, p]));
-      const myFavorites = new Set(await db.getUserFavorites(currentUserId));
+      const myFavorites = new Set(await db.getUserFavorites(currentUserId, selectedGoalId));
+      const goalMap = new Map<number, Array<(typeof allGoals)[number]>>();
+      for (const goal of allGoals) {
+        const list = goalMap.get(goal.userId) ?? [];
+        list.push(goal);
+        goalMap.set(goal.userId, list);
+      }
 
       const items = await Promise.all(
         allUsers
           .filter((u) => admireSet.has(u.id))
           .map(async (user) => {
             const profile = profileMap.get(user.id) ?? null;
-            const goalSimilarity = profile?.studyGoal
-              ? await compareGoals(currentProfile?.studyGoal || "", profile.studyGoal)
+            const matchedGoal =
+              (goalMap.get(user.id) ?? []).find(
+                (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
+              ) ?? null;
+            const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
+            const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+            const goalSimilarity = matchedGoalName
+              ? await compareGoals(selectedGoalName, matchedGoalName)
               : 0.5;
-            const compatibility = profile
-              ? calculateCompatibility(currentProfile, currentPreferences, profile, goalSimilarity)
+            const profileForCompatibility = profile
+              ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
+              : null;
+            const compatibility = profileForCompatibility
+              ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
               : 0;
             return buildCandidateCard({
               user,
               profile,
               compatibility,
               isFavorite: myFavorites.has(user.id),
+              goal: matchedGoalName,
+              goalDescription: matchedGoalDescription,
             });
           }),
       );

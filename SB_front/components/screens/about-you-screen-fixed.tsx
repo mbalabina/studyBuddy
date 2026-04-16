@@ -288,11 +288,10 @@ function GoalScreen() {
   const [goalName, setGoalName] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
 
-  const handleAddGoal = () => {
+  const handleAddGoal = async () => {
     if (!goalName.trim()) return
 
-    addStudyGoal({
-      id: Date.now().toString(),
+    await addStudyGoal({
       name: goalName,
       description: goalDesc,
       startDate: new Date().toLocaleDateString("ru-RU"),
@@ -336,7 +335,7 @@ function GoalScreen() {
         <div className="mt-auto pb-8 pt-6">
           <button
             className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleAddGoal}
+            onClick={() => void handleAddGoal()}
             disabled={!goalName.trim()}
           >
             Добавить цель

@@ -95,22 +95,31 @@ export const profileAPI = {
     callTRPC({ method: "mutation", procedure: "profile.updatePartnerPreferences", input: data }),
 }
 
+export const goalsAPI = {
+  list: () =>
+    callTRPC({ method: "query", procedure: "goals.list" }),
+  create: (data: { name: string; description?: string; makeActive?: boolean }) =>
+    callTRPC({ method: "mutation", procedure: "goals.create", input: data }),
+  setActive: (goalId: number) =>
+    callTRPC({ method: "mutation", procedure: "goals.setActive", input: { goalId } }),
+}
+
 export const matchingAPI = {
-  getCandidates: (params?: { limit?: number; offset?: number; goal?: string }) =>
+  getCandidates: (params?: { limit?: number; offset?: number; goal?: string; goalId?: number }) =>
     callTRPC({ method: "query", procedure: "matching.getCandidates", input: params }),
-  getCandidate: (candidateId: number) =>
-    callTRPC({ method: "query", procedure: "matching.getCandidate", input: { candidateId } }),
+  getCandidate: (candidateId: number, goalId?: number) =>
+    callTRPC({ method: "query", procedure: "matching.getCandidate", input: { candidateId, goalId } }),
 }
 
 export const favoritesAPI = {
-  like: (candidateId: number) =>
-    callTRPC({ method: "mutation", procedure: "favorites.like", input: { candidateId } }),
-  unlike: (candidateId: number) =>
-    callTRPC({ method: "mutation", procedure: "favorites.unlike", input: { candidateId } }),
-  getMyFavorites: () =>
-    callTRPC({ method: "query", procedure: "favorites.getList" }),
-  getAdmirers: () =>
-    callTRPC({ method: "query", procedure: "favorites.getAdmirers" }),
+  like: (candidateId: number, goalId?: number) =>
+    callTRPC({ method: "mutation", procedure: "favorites.like", input: { candidateId, goalId } }),
+  unlike: (candidateId: number, goalId?: number) =>
+    callTRPC({ method: "mutation", procedure: "favorites.unlike", input: { candidateId, goalId } }),
+  getMyFavorites: (goalId?: number) =>
+    callTRPC({ method: "query", procedure: "favorites.getList", input: { goalId } }),
+  getAdmirers: (goalId?: number) =>
+    callTRPC({ method: "query", procedure: "favorites.getAdmirers", input: { goalId } }),
 }
 
 export const adminAPI = {

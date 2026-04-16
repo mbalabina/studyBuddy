@@ -60,10 +60,24 @@ export const preferences = mysqlTable("preferences", {
 export type Preference = typeof preferences.$inferSelect;
 export type InsertPreference = typeof preferences.$inferInsert;
 
+export const userStudyGoals = mysqlTable("userStudyGoals", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  isActive: boolean("isActive").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserStudyGoal = typeof userStudyGoals.$inferSelect;
+export type InsertUserStudyGoal = typeof userStudyGoals.$inferInsert;
+
 export const favorites = mysqlTable("favorites", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   favoriteUserId: int("favoriteUserId").notNull(),
+  goalId: int("goalId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -73,6 +87,7 @@ export type InsertFavorite = typeof favorites.$inferInsert;
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles, { fields: [users.id], references: [profiles.userId] }),
   preferences: one(preferences, { fields: [users.id], references: [preferences.userId] }),
+  studyGoals: many(userStudyGoals),
   favorites: many(favorites),
 }));
 
@@ -84,7 +99,12 @@ export const preferencesRelations = relations(preferences, ({ one }) => ({
   user: one(users, { fields: [preferences.userId], references: [users.id] }),
 }));
 
+export const userStudyGoalsRelations = relations(userStudyGoals, ({ one }) => ({
+  user: one(users, { fields: [userStudyGoals.userId], references: [users.id] }),
+}));
+
 export const favoritesRelations = relations(favorites, ({ one }) => ({
   user: one(users, { fields: [favorites.userId], references: [users.id] }),
   favoriteUser: one(users, { fields: [favorites.favoriteUserId], references: [users.id] }),
+  goal: one(userStudyGoals, { fields: [favorites.goalId], references: [userStudyGoals.id] }),
 }));

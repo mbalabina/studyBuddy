@@ -29,6 +29,13 @@
       "when": 1775678580007,
       "tag": "0003_amused_excalibur",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1776366000000,
+      "tag": "0004_goal_scoped_matching",
+      "breakpoints": true
     }
   ]
 }

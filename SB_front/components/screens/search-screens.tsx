@@ -11,7 +11,7 @@ export default function SearchIntroScreen() {
   const {
     state,
     setScreen,
-    setState,
+    setActiveGoal,
     loadCandidates,
     loadFavoriteCandidates,
     loadAdmirerCandidates,
@@ -29,10 +29,9 @@ export default function SearchIntroScreen() {
     }
   }, [state.isLoggedIn, loadAdmirerCandidates, loadCandidates, loadFavoriteCandidates])
 
-  const handleAddGoal = () => {
+  const handleAddGoal = async () => {
     if (!newGoalName.trim()) return
-    addStudyGoal({
-      id: Date.now().toString(),
+    await addStudyGoal({
       name: newGoalName.trim(),
       description: newGoalDesc.trim(),
       startDate: new Date().toISOString(),
@@ -47,15 +46,10 @@ export default function SearchIntroScreen() {
   const canSearchByGoal = Boolean(activeGoalName)
 
   const handleGoalSelect = (goalIndex: number) => {
-    const selectedGoal = goals[goalIndex]?.name
-    if (!selectedGoal) return
+    const selectedGoalId = goals[goalIndex]?.id
+    if (!selectedGoalId) return
 
-    setState((prev) => ({
-      ...prev,
-      currentGoalIndex: goalIndex,
-    }))
-
-    loadCandidates(selectedGoal).catch(console.error)
+    setActiveGoal(selectedGoalId).catch(console.error)
   }
 
   return (
@@ -166,7 +160,7 @@ export default function SearchIntroScreen() {
 
             <button
               className="btn-green"
-              onClick={handleAddGoal}
+              onClick={() => void handleAddGoal()}
               disabled={!newGoalName.trim()}
             >
               Добавить
@@ -465,7 +459,15 @@ export function LikesScreen() {
                 candidate={candidate}
                 onClick={() => {
                   const index = state.favoriteCandidates.findIndex((item) => item.id === candidate.id)
-                  setState((prev) => ({ ...prev, currentFavoriteIndex: index >= 0 ? index : 0 }))
+                  const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                  setState((prev) => ({
+                    ...prev,
+                    currentFavoriteIndex: index >= 0 ? index : 0,
+                    currentFavoriteIndexByGoal:
+                      typeof activeGoalId === "number"
+                        ? { ...prev.currentFavoriteIndexByGoal, [activeGoalId]: index >= 0 ? index : 0 }
+                        : prev.currentFavoriteIndexByGoal,
+                  }))
                   setScreen("likes-candidates")
                 }}
               />
@@ -549,7 +551,15 @@ export function AdmirersScreen() {
                 key={candidate.id}
                 candidate={candidate}
                 onClick={() => {
-                  setState((prev) => ({ ...prev, currentAdmirerIndex: index }))
+                  const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                  setState((prev) => ({
+                    ...prev,
+                    currentAdmirerIndex: index,
+                    currentAdmirerIndexByGoal:
+                      typeof activeGoalId === "number"
+                        ? { ...prev.currentAdmirerIndexByGoal, [activeGoalId]: index }
+                        : prev.currentAdmirerIndexByGoal,
+                  }))
                   setScreen("admirers-candidates")
                 }}
               />
@@ -598,22 +608,49 @@ export function AdmirerCandidatesScreen() {
           candidate={candidate}
           onOpen={() => {
             const index = state.admirerCandidates.findIndex((item) => item.id === candidate.id)
-            setState((prev) => ({ ...prev, currentAdmirerIndex: index >= 0 ? index : prev.currentAdmirerIndex }))
+            const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+            setState((prev) => ({
+              ...prev,
+              currentAdmirerIndex: index >= 0 ? index : prev.currentAdmirerIndex,
+              currentAdmirerIndexByGoal:
+                typeof activeGoalId === "number"
+                  ? { ...prev.currentAdmirerIndexByGoal, [activeGoalId]: index >= 0 ? index : prev.currentAdmirerIndex }
+                  : prev.currentAdmirerIndexByGoal,
+            }))
           }}
           primaryActionLabel={candidate.isFavorite ? "Уже в твоих лайках" : "Лайкнуть в ответ"}
           onPrimaryAction={
             candidate.isFavorite
               ? undefined
               : async () => {
-                  await favoritesAPI.like(candidate.id)
+                  const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                  await favoritesAPI.like(candidate.id, activeGoalId)
                   setState((prev) => ({
                     ...prev,
                     admirerCandidates: prev.admirerCandidates.map((item) =>
                       item.id === candidate.id ? { ...item, isFavorite: true } : item,
                     ),
+                    admirerCandidatesByGoal:
+                      typeof activeGoalId === "number"
+                        ? {
+                            ...prev.admirerCandidatesByGoal,
+                            [activeGoalId]: (prev.admirerCandidatesByGoal[activeGoalId] ?? prev.admirerCandidates).map((item) =>
+                              item.id === candidate.id ? { ...item, isFavorite: true } : item,
+                            ),
+                          }
+                        : prev.admirerCandidatesByGoal,
                     favoriteCandidates: prev.favoriteCandidates.some((item) => item.id === candidate.id)
                       ? prev.favoriteCandidates
                       : [...prev.favoriteCandidates, { ...candidate, isFavorite: true }],
+                    favoriteCandidatesByGoal:
+                      typeof activeGoalId === "number"
+                        ? {
+                            ...prev.favoriteCandidatesByGoal,
+                            [activeGoalId]: (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates).some((item) => item.id === candidate.id)
+                              ? (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates)
+                              : [...(prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates), { ...candidate, isFavorite: true }],
+                          }
+                        : prev.favoriteCandidatesByGoal,
                   }))
                 }
           }

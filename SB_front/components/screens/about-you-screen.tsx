@@ -224,10 +224,9 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
 
   const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (goalName) {
-      addStudyGoal({
-        id: Date.now().toString(),
+      await addStudyGoal({
         name: goalName,
         description: goalDesc,
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
@@ -265,7 +264,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
         </div>
         <div className="mt-auto pb-8 pt-6">
           <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
-            onClick={handleNext}>Далее</button>
+            onClick={() => void handleNext()}>Далее</button>
         </div>
       </div>
     </div>

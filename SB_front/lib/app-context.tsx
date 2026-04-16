@@ -3,7 +3,7 @@
 
 import type React from "react"
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
-import { authAPI, matchingAPI, favoritesAPI, profileAPI } from "./api"
+import { authAPI, matchingAPI, favoritesAPI, profileAPI, goalsAPI } from "./api"
 
 
 // ========== TYPES ==========
@@ -67,10 +67,11 @@ export interface UserProfile {
 
 
 export interface StudyGoal {
-  id: string
+  id: number
   name: string
   description: string
   startDate: string
+  isActive?: boolean
 }
 
 
@@ -107,6 +108,12 @@ interface AppState {
   apiError: string | null
   currentAdmirerIndex: number
   currentFavoriteIndex: number
+  candidatesByGoal: Record<number, Candidate[]>
+  favoriteCandidatesByGoal: Record<number, Candidate[]>
+  admirerCandidatesByGoal: Record<number, Candidate[]>
+  currentCandidateIndexByGoal: Record<number, number>
+  currentFavoriteIndexByGoal: Record<number, number>
+  currentAdmirerIndexByGoal: Record<number, number>
 }
 
 
@@ -114,7 +121,8 @@ interface AppContextType {
   state: AppState
   setScreen: (screen: AppScreen) => void
   updateUser: (updates: Partial<UserProfile>) => void
-  addStudyGoal: (goal: StudyGoal) => void
+  addStudyGoal: (goal: Omit<StudyGoal, "id">) => Promise<void>
+  setActiveGoal: (goalId: number) => Promise<void>
   likeCurrent: () => void
   rejectCurrent: () => void
   nextCandidate: () => void
@@ -122,7 +130,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, telegram?: string) => Promise<void>
   logout: () => Promise<void>
-  loadCandidates: (goalOverride?: string) => Promise<void>
+  loadCandidates: (goalIdOverride?: number) => Promise<void>
   loadFavoriteCandidates: () => Promise<void>
   loadAdmirerCandidates: () => Promise<void>
   loadProfile: () => Promise<void>
@@ -169,6 +177,23 @@ function normalizeGoalValue(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase()
 }
 
+function resolveGoalSelection(state: AppState, goalIdOverride?: number) {
+  const goals = state.user.studyGoals
+  if (goals.length === 0) {
+    return { goal: null as StudyGoal | null, goalIndex: 0 }
+  }
+
+  if (typeof goalIdOverride === "number") {
+    const indexById = goals.findIndex((goal) => goal.id === goalIdOverride)
+    if (indexById >= 0) {
+      return { goal: goals[indexById], goalIndex: indexById }
+    }
+  }
+
+  const safeIndex = Math.min(Math.max(state.currentGoalIndex, 0), goals.length - 1)
+  return { goal: goals[safeIndex], goalIndex: safeIndex }
+}
+
 function createAccountScopedDefaults() {
   return {
     user: defaultUser,
@@ -183,6 +208,12 @@ function createAccountScopedDefaults() {
     apiError: null,
     currentAdmirerIndex: 0,
     currentFavoriteIndex: 0,
+    candidatesByGoal: {},
+    favoriteCandidatesByGoal: {},
+    admirerCandidatesByGoal: {},
+    currentCandidateIndexByGoal: {},
+    currentFavoriteIndexByGoal: {},
+    currentAdmirerIndexByGoal: {},
   }
 }
 
@@ -212,6 +243,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     apiError: null,
     currentAdmirerIndex: 0,
     currentFavoriteIndex: 0,
+    candidatesByGoal: {},
+    favoriteCandidatesByGoal: {},
+    admirerCandidatesByGoal: {},
+    currentCandidateIndexByGoal: {},
+    currentFavoriteIndexByGoal: {},
+    currentAdmirerIndexByGoal: {},
   })
 
 
@@ -244,18 +281,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 
   // ========== ЗАГРУЗКА КАНДИДАТОВ ==========
-  const loadCandidatesForSession = useCallback(async (sessionVersion: number, goalOverride?: string) => {
+  const loadCandidatesForSession = useCallback(async (sessionVersion: number, goalIdOverride?: number) => {
+    const { goal, goalIndex } = resolveGoalSelection(stateRef.current, goalIdOverride)
+    const selectedGoalId = goal?.id
+    const selectedGoalName = goal?.name?.trim() || ""
+
     setStateForSession(sessionVersion, (prev) => ({
       ...prev,
       isLoadingCandidates: true,
       apiError: null,
+      currentGoalIndex: goalIndex,
     }))
 
     try {
-      const selectedGoal = goalOverride?.trim() || stateRef.current.user.studyGoals[stateRef.current.currentGoalIndex]?.name?.trim()
-      const data = await matchingAPI.getCandidates({ limit: 50, offset: 0, goal: selectedGoal || undefined })
+      const data = await matchingAPI.getCandidates({
+        limit: 50,
+        offset: 0,
+        goalId: selectedGoalId,
+        goal: selectedGoalName || undefined,
+      })
       const rawList: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
-      const normalizedSelectedGoal = normalizeGoalValue(selectedGoal)
+      const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName)
       const list = normalizedSelectedGoal
         ? rawList.filter((candidate) => normalizeGoalValue(candidate.goal) === normalizedSelectedGoal)
         : []
@@ -263,8 +309,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
         candidates: list,
-        currentCandidateIndex: 0,
+        currentCandidateIndex:
+          typeof selectedGoalId === "number"
+            ? (prev.currentCandidateIndexByGoal[selectedGoalId] ?? 0)
+            : 0,
         isLoadingCandidates: false,
+        candidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.candidatesByGoal, [selectedGoalId]: list }
+            : prev.candidatesByGoal,
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Ошибка загрузки кандидатов"
@@ -275,23 +328,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentCandidateIndex: 0,
         isLoadingCandidates: false,
         apiError: msg,
+        candidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.candidatesByGoal, [selectedGoalId]: [] }
+            : prev.candidatesByGoal,
       }))
     }
   }, [setStateForSession])
 
-  const loadCandidates = useCallback((goalOverride?: string) => {
-    return loadCandidatesForSession(sessionVersionRef.current, goalOverride)
+  const loadCandidates = useCallback((goalIdOverride?: number) => {
+    return loadCandidatesForSession(sessionVersionRef.current, goalIdOverride)
   }, [loadCandidatesForSession])
 
-  const loadFavoriteCandidatesForSession = useCallback(async (sessionVersion: number) => {
+  const loadFavoriteCandidatesForSession = useCallback(async (sessionVersion: number, goalIdOverride?: number) => {
+    const { goal, goalIndex } = resolveGoalSelection(stateRef.current, goalIdOverride)
+    const selectedGoalId = goal?.id
     try {
-      const data = await favoritesAPI.getMyFavorites()
+      const data = await favoritesAPI.getMyFavorites(selectedGoalId)
       const list: Candidate[] = Array.isArray(data) ? data : []
 
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
+        currentGoalIndex: goalIndex,
         favoriteCandidates: list,
-        currentFavoriteIndex: 0,
+        currentFavoriteIndex:
+          typeof selectedGoalId === "number"
+            ? (prev.currentFavoriteIndexByGoal[selectedGoalId] ?? 0)
+            : 0,
+        favoriteCandidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.favoriteCandidatesByGoal, [selectedGoalId]: list }
+            : prev.favoriteCandidatesByGoal,
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Ошибка загрузки моих лайков"
@@ -301,6 +368,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         favoriteCandidates: [],
         currentFavoriteIndex: 0,
         apiError: msg,
+        favoriteCandidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.favoriteCandidatesByGoal, [selectedGoalId]: [] }
+            : prev.favoriteCandidatesByGoal,
       }))
     }
   }, [setStateForSession])
@@ -309,15 +380,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return loadFavoriteCandidatesForSession(sessionVersionRef.current)
   }, [loadFavoriteCandidatesForSession])
 
-  const loadAdmirerCandidatesForSession = useCallback(async (sessionVersion: number) => {
+  const loadAdmirerCandidatesForSession = useCallback(async (sessionVersion: number, goalIdOverride?: number) => {
+    const { goal, goalIndex } = resolveGoalSelection(stateRef.current, goalIdOverride)
+    const selectedGoalId = goal?.id
     try {
-      const data = await favoritesAPI.getAdmirers()
+      const data = await favoritesAPI.getAdmirers(selectedGoalId)
       const list: Candidate[] = Array.isArray(data) ? data : []
 
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
+        currentGoalIndex: goalIndex,
         admirerCandidates: list,
-        currentAdmirerIndex: 0,
+        currentAdmirerIndex:
+          typeof selectedGoalId === "number"
+            ? (prev.currentAdmirerIndexByGoal[selectedGoalId] ?? 0)
+            : 0,
+        admirerCandidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.admirerCandidatesByGoal, [selectedGoalId]: list }
+            : prev.admirerCandidatesByGoal,
       }))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Ошибка загрузки тех, кто лайкнул тебя"
@@ -327,6 +408,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         admirerCandidates: [],
         currentAdmirerIndex: 0,
         apiError: msg,
+        admirerCandidatesByGoal:
+          typeof selectedGoalId === "number"
+            ? { ...prev.admirerCandidatesByGoal, [selectedGoalId]: [] }
+            : prev.admirerCandidatesByGoal,
       }))
     }
   }, [setStateForSession])
@@ -344,13 +429,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const preferences = data?.preferences
       const safeUser = data?.user
 
-      const goals: StudyGoal[] = profile?.studyGoal
-        ? [{ id: "1", name: profile.studyGoal, description: profile.bio || "", startDate: "" }]
+      const goalsFromApi: StudyGoal[] = Array.isArray(data?.goals)
+        ? (data.goals as Array<{ id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }>)
+            .map((goal) => ({
+              id: Number(goal.id),
+              name: goal.name || "",
+              description: goal.description || "",
+              startDate: goal.createdAt || "",
+              isActive: Boolean(goal.isActive),
+            }))
+            .filter((goal) => Boolean(goal.id) && Boolean(goal.name.trim()))
         : []
+
+      const goals: StudyGoal[] = goalsFromApi.length > 0
+        ? goalsFromApi
+        : profile?.studyGoal
+          ? [{ id: 1, name: profile.studyGoal, description: profile.bio || "", startDate: "", isActive: true }]
+          : []
+      const activeGoalIndexFromApi = goals.findIndex((goal) => goal.isActive)
+      const activeGoalIndex = activeGoalIndexFromApi >= 0 ? activeGoalIndexFromApi : 0
 
 
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
+        currentGoalIndex: goals.length > 0 ? activeGoalIndex : 0,
         user: {
           ...defaultUser,
           firstName: profile?.firstName || "",
@@ -372,6 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           partnerLevel: preferences?.preferredLevel || "",
         },
       }))
+      return goals[activeGoalIndex]?.id
     } catch (e) {
       console.error("Failed to load profile", e)
 
@@ -379,11 +482,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         user: defaultUser,
       }))
+      return undefined
     }
   }, [setStateForSession])
 
   const loadProfile = useCallback(() => {
-    return loadProfileForSession(sessionVersionRef.current)
+    return loadProfileForSession(sessionVersionRef.current).then(() => undefined)
   }, [loadProfileForSession])
 
 
@@ -410,11 +514,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             screen: "main",
           }))
 
+          const activeGoalId = await loadProfileForSession(sessionVersion)
+          if (!isSessionCurrent(sessionVersion)) {
+            return
+          }
+
           await Promise.all([
-            loadCandidatesForSession(sessionVersion),
-            loadFavoriteCandidatesForSession(sessionVersion),
-            loadAdmirerCandidatesForSession(sessionVersion),
-            loadProfileForSession(sessionVersion),
+            loadCandidatesForSession(sessionVersion, activeGoalId),
+            loadFavoriteCandidatesForSession(sessionVersion, activeGoalId),
+            loadAdmirerCandidatesForSession(sessionVersion, activeGoalId),
           ])
         } else {
           setStateForSession(sessionVersion, (prev) => ({
@@ -467,12 +575,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
 
-  const addStudyGoal = useCallback((goal: StudyGoal) => {
-    setState((prev) => ({
-      ...prev,
-      user: { ...prev.user, studyGoals: [...prev.user.studyGoals, goal] },
-    }))
-  }, [])
+  const setActiveGoal = useCallback(async (goalId: number) => {
+    const sessionVersion = sessionVersionRef.current
+    await goalsAPI.setActive(goalId)
+    const goalIndex = stateRef.current.user.studyGoals.findIndex((goal) => goal.id === goalId)
+    if (goalIndex < 0) return
+
+    setStateForSession(sessionVersion, (prev) => {
+      const goals = prev.user.studyGoals.map((goal) => ({
+        ...goal,
+        isActive: goal.id === goalId,
+      }))
+      const candidates = prev.candidatesByGoal[goalId] ?? []
+      const favoriteCandidates = prev.favoriteCandidatesByGoal[goalId] ?? []
+      const admirerCandidates = prev.admirerCandidatesByGoal[goalId] ?? []
+
+      return {
+        ...prev,
+        user: { ...prev.user, studyGoals: goals },
+        currentGoalIndex: goalIndex,
+        candidates,
+        favoriteCandidates,
+        admirerCandidates,
+        currentCandidateIndex: prev.currentCandidateIndexByGoal[goalId] ?? 0,
+        currentFavoriteIndex: prev.currentFavoriteIndexByGoal[goalId] ?? 0,
+        currentAdmirerIndex: prev.currentAdmirerIndexByGoal[goalId] ?? 0,
+      }
+    })
+
+    await Promise.all([
+      loadCandidatesForSession(sessionVersion, goalId),
+      loadFavoriteCandidatesForSession(sessionVersion, goalId),
+      loadAdmirerCandidatesForSession(sessionVersion, goalId),
+    ])
+  }, [loadAdmirerCandidatesForSession, loadCandidatesForSession, loadFavoriteCandidatesForSession, setStateForSession])
+
+  const addStudyGoal = useCallback(async (goal: Omit<StudyGoal, "id">) => {
+    const created = await goalsAPI.create({
+      name: goal.name,
+      description: goal.description,
+      makeActive: true,
+    }) as { id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }
+
+    const createdGoal: StudyGoal = {
+      id: Number(created.id),
+      name: created.name,
+      description: created.description || "",
+      startDate: created.createdAt || goal.startDate || "",
+      isActive: true,
+    }
+
+    setState((prev) => {
+      const withoutDuplicates = prev.user.studyGoals.filter((item) => item.id !== createdGoal.id)
+      const goals = [...withoutDuplicates.map((item) => ({ ...item, isActive: false })), createdGoal]
+
+      return {
+        ...prev,
+        user: { ...prev.user, studyGoals: goals },
+        currentGoalIndex: goals.length - 1,
+      }
+    })
+
+    await Promise.all([
+      loadCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+      loadFavoriteCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+      loadAdmirerCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+    ])
+  }, [loadAdmirerCandidatesForSession, loadCandidatesForSession, loadFavoriteCandidatesForSession])
 
 
   const likeCurrent = useCallback(() => {
@@ -481,30 +650,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!candidate) return
 
 
-    setState((prev) => ({
-      ...prev,
-      likedCandidates: [...prev.likedCandidates, candidate.id],
-      currentCandidateIndex: prev.currentCandidateIndex + 1,
-    }))
+    const activeGoalId = current.user.studyGoals[current.currentGoalIndex]?.id
+    setState((prev) => {
+      const nextIndex = prev.currentCandidateIndex + 1
+      const nextCandidateIndexByGoal =
+        typeof activeGoalId === "number"
+          ? { ...prev.currentCandidateIndexByGoal, [activeGoalId]: nextIndex }
+          : prev.currentCandidateIndexByGoal
+
+      return {
+        ...prev,
+        likedCandidates: [...prev.likedCandidates, candidate.id],
+        currentCandidateIndex: nextIndex,
+        currentCandidateIndexByGoal: nextCandidateIndexByGoal,
+      }
+    })
 
 
-    favoritesAPI.like(candidate.id).catch(console.error)
+    favoritesAPI.like(candidate.id, activeGoalId).catch(console.error)
   }, [])
 
 
   const rejectCurrent = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      currentCandidateIndex: prev.currentCandidateIndex + 1,
-    }))
+    const activeGoalId = stateRef.current.user.studyGoals[stateRef.current.currentGoalIndex]?.id
+    setState((prev) => {
+      const nextIndex = prev.currentCandidateIndex + 1
+      return {
+        ...prev,
+        currentCandidateIndex: nextIndex,
+        currentCandidateIndexByGoal:
+          typeof activeGoalId === "number"
+            ? { ...prev.currentCandidateIndexByGoal, [activeGoalId]: nextIndex }
+            : prev.currentCandidateIndexByGoal,
+      }
+    })
   }, [])
 
 
   const nextCandidate = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      currentCandidateIndex: prev.currentCandidateIndex + 1,
-    }))
+    const activeGoalId = stateRef.current.user.studyGoals[stateRef.current.currentGoalIndex]?.id
+    setState((prev) => {
+      const nextIndex = prev.currentCandidateIndex + 1
+      return {
+        ...prev,
+        currentCandidateIndex: nextIndex,
+        currentCandidateIndexByGoal:
+          typeof activeGoalId === "number"
+            ? { ...prev.currentCandidateIndexByGoal, [activeGoalId]: nextIndex }
+            : prev.currentCandidateIndexByGoal,
+      }
+    })
   }, [])
 
 
@@ -527,11 +722,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       screen: "main",
     }))
 
+    const activeGoalId = await loadProfileForSession(sessionVersion)
+    if (!isSessionCurrent(sessionVersion)) {
+      return
+    }
+
     await Promise.all([
-      loadCandidatesForSession(sessionVersion),
-      loadFavoriteCandidatesForSession(sessionVersion),
-      loadAdmirerCandidatesForSession(sessionVersion),
-      loadProfileForSession(sessionVersion),
+      loadCandidatesForSession(sessionVersion, activeGoalId),
+      loadFavoriteCandidatesForSession(sessionVersion, activeGoalId),
+      loadAdmirerCandidatesForSession(sessionVersion, activeGoalId),
     ])
   }, [
     beginSessionTransition,
@@ -590,7 +789,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ========== СОХРАНЕНИЕ ПРОФИЛЯ ==========
   const saveProfile = useCallback(async (overrides?: Partial<UserProfile>) => {
     const u = { ...stateRef.current.user, ...overrides }
-    const primaryGoal = u.studyGoals[0]
+    const activeGoal = u.studyGoals[stateRef.current.currentGoalIndex] ?? u.studyGoals[0]
     await profileAPI.updateAboutMe({
       firstName: u.firstName,
       lastName: u.lastName,
@@ -600,14 +799,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       program: u.program,
       course: u.course,
       messengerHandle: u.messengerHandle,
-      studyGoal: primaryGoal?.name ?? "",
+      studyGoal: activeGoal?.name ?? "",
       proficiencyLevel: u.knowledgeLevel,
       schedule: u.preferredTime,
       learningFormat: u.learningFormat,
       communicationStyle: u.communicationStyle,
-      bio: primaryGoal?.description || u.bio,
+      bio: activeGoal?.description || u.bio,
       avatarUrl: u.avatarUrl,
     })
+
+    if (activeGoal?.id) {
+      await goalsAPI.setActive(activeGoal.id)
+    }
   }, [])
 
 
@@ -630,6 +833,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setScreen,
         updateUser,
         addStudyGoal,
+        setActiveGoal,
         likeCurrent,
         rejectCurrent,
         nextCandidate,
