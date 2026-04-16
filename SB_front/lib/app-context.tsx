@@ -177,6 +177,11 @@ function normalizeGoalValue(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase()
 }
 
+function isNotFoundApiError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return error.message.toLowerCase().includes("api error: 404")
+}
+
 function resolveGoalSelection(state: AppState, goalIdOverride?: number) {
   const goals = state.user.studyGoals
   if (goals.length === 0) {
@@ -611,37 +616,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [loadAdmirerCandidatesForSession, loadCandidatesForSession, loadFavoriteCandidatesForSession, setStateForSession])
 
   const addStudyGoal = useCallback(async (goal: Omit<StudyGoal, "id">) => {
-    const created = await goalsAPI.create({
-      name: goal.name,
-      description: goal.description,
-      makeActive: true,
-    }) as { id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }
+    try {
+      const created = await goalsAPI.create({
+        name: goal.name,
+        description: goal.description,
+        makeActive: true,
+      }) as { id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }
 
-    const createdGoal: StudyGoal = {
-      id: Number(created.id),
-      name: created.name,
-      description: created.description || "",
-      startDate: created.createdAt || goal.startDate || "",
-      isActive: true,
+      const createdGoal: StudyGoal = {
+        id: Number(created.id),
+        name: created.name,
+        description: created.description || "",
+        startDate: created.createdAt || goal.startDate || "",
+        isActive: true,
+      }
+
+      setState((prev) => {
+        const withoutDuplicates = prev.user.studyGoals.filter((item) => item.id !== createdGoal.id)
+        const goals = [...withoutDuplicates.map((item) => ({ ...item, isActive: false })), createdGoal]
+
+        return {
+          ...prev,
+          user: { ...prev.user, studyGoals: goals },
+          currentGoalIndex: goals.length - 1,
+        }
+      })
+
+      await Promise.all([
+        loadCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+        loadFavoriteCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+        loadAdmirerCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+      ])
+      return
+    } catch (error) {
+      if (!isNotFoundApiError(error)) {
+        throw error
+      }
     }
 
-    setState((prev) => {
-      const withoutDuplicates = prev.user.studyGoals.filter((item) => item.id !== createdGoal.id)
-      const goals = [...withoutDuplicates.map((item) => ({ ...item, isActive: false })), createdGoal]
-
-      return {
-        ...prev,
-        user: { ...prev.user, studyGoals: goals },
-        currentGoalIndex: goals.length - 1,
-      }
+    // Fallback for outdated backend that doesn't have `goals.*` procedures yet
+    await profileAPI.updateAboutMe({
+      studyGoal: goal.name,
+      bio: goal.description,
     })
 
+    const sessionVersion = sessionVersionRef.current
+    const activeGoalId = await loadProfileForSession(sessionVersion)
     await Promise.all([
-      loadCandidatesForSession(sessionVersionRef.current, createdGoal.id),
-      loadFavoriteCandidatesForSession(sessionVersionRef.current, createdGoal.id),
-      loadAdmirerCandidatesForSession(sessionVersionRef.current, createdGoal.id),
+      loadCandidatesForSession(sessionVersion, activeGoalId),
+      loadFavoriteCandidatesForSession(sessionVersion, activeGoalId),
+      loadAdmirerCandidatesForSession(sessionVersion, activeGoalId),
     ])
-  }, [loadAdmirerCandidatesForSession, loadCandidatesForSession, loadFavoriteCandidatesForSession])
+  }, [
+    loadAdmirerCandidatesForSession,
+    loadCandidatesForSession,
+    loadFavoriteCandidatesForSession,
+    loadProfileForSession,
+    setState,
+  ])
 
 
   const likeCurrent = useCallback(() => {
@@ -809,7 +841,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
 
     if (activeGoal?.id) {
-      await goalsAPI.setActive(activeGoal.id)
+      try {
+        await goalsAPI.setActive(activeGoal.id)
+      } catch (error) {
+        if (!isNotFoundApiError(error)) {
+          throw error
+        }
+      }
     }
   }, [])
 
