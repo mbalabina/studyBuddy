@@ -3,7 +3,7 @@
 import { useEffect, useState, type SyntheticEvent } from "react"
 import { useApp, type Candidate } from "@/lib/app-context"
 import { favoritesAPI } from "@/lib/api"
-import { ChevronLeft, Heart, X, MessageCircle, MapPin, GraduationCap } from "lucide-react"
+import { ChevronLeft, Heart, X, MapPin, GraduationCap } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
 
 const DEFAULT_AVATAR_SRC = "/mascot.png"
@@ -18,6 +18,20 @@ function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
   if (image.dataset.fallbackApplied === "true") return
   image.dataset.fallbackApplied = "true"
   image.src = DEFAULT_AVATAR_SRC
+}
+
+function getContactLabel(contact: string | null | undefined): "Telegram" | "VK" {
+  const value = (contact ?? "").trim().toLowerCase()
+  if (!value) return "Telegram"
+  if (
+    value.includes("vk.com") ||
+    value.includes("vkontakte") ||
+    value.startsWith("id") ||
+    value.startsWith("vk")
+  ) {
+    return "VK"
+  }
+  return "Telegram"
 }
 
 
@@ -310,6 +324,8 @@ export function CandidateDetailScreen() {
   const candidate = state.selectedCandidate ?? state.candidates[state.currentCandidateIndex]
   const searchCandidate = state.candidates[state.currentCandidateIndex] ?? null
   const isSearchCandidate = Boolean(searchCandidate && searchCandidate.id === candidate?.id)
+  const isAlreadyLiked = Boolean(candidate?.isFavorite)
+  const canLikeCandidate = !isAlreadyLiked
 
   if (!candidate) {
     return (
@@ -387,8 +403,12 @@ export function CandidateDetailScreen() {
         <div className="mt-6 space-y-3">
           <button
             className="btn-green"
+            disabled={!canLikeCandidate}
             onClick={() => {
               void (async () => {
+                if (!canLikeCandidate) {
+                  return
+                }
                 if (isSearchCandidate) {
                   const result = await likeCurrent()
                   setScreen(result?.matched ? "match-success" : "match-waiting")
@@ -433,7 +453,7 @@ export function CandidateDetailScreen() {
               })()
             }}
           >
-            Лайкнуть
+            {isAlreadyLiked ? "Уже в твоих лайках" : "Лайкнуть"}
           </button>
           <button className="btn-outline-gray" onClick={() => setScreen("search-card")}>
             Назад к карточкам
@@ -455,7 +475,7 @@ export function MatchWaitingScreen() {
         </div>
         <h1 className="text-2xl font-bold mb-3">Лайк отправлен</h1>
         <p className="text-sm text-gray-600 mb-8 max-w-[280px]">
-          Если симпатия взаимная, вы сможете перейти к общению.
+          Если пользователь лайкнет вас в ответ, вы сможете перейти к общению.
         </p>
         <button className="btn-green" onClick={() => setScreen("search-card")}>
           Смотреть дальше
@@ -472,19 +492,22 @@ export function MatchSuccessScreen() {
     state.matchedCandidate ??
     state.candidates[Math.max(0, state.currentCandidateIndex - 1)] ??
     null
+  const contactType = getContactLabel(candidate?.telegram)
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
       <div className="flex-1 flex flex-col items-center justify-center text-center">
-        <div className="w-24 h-24 rounded-full bg-[var(--green-light)] flex items-center justify-center mb-6">
-          <MessageCircle className="w-10 h-10" />
-        </div>
-        <h1 className="text-2xl font-bold mb-3">Контакт сохранён</h1>
-        <p className="text-sm text-gray-600 mb-3">
-          {candidate ? `Ты лайкнула ${candidate.name}.` : "Лайк успешно отправлен."}
+        <img
+          src={DEFAULT_AVATAR_SRC}
+          alt="Поздравляющий маскот"
+          className="w-24 h-24 object-contain mb-6"
+        />
+        <h1 className="text-2xl font-bold mb-2">Это Мэтч!</h1>
+        <p className="text-xs text-gray-600 mb-3">
+          Теперь вы можете связаться со своим бадди и начать совместное обучение
         </p>
         <p className="text-sm text-gray-500 mb-8">
-          {candidate?.telegram ? `Связь: ${candidate.telegram}` : "Контакт пока не указан."}
+          {candidate?.telegram ? `${contactType}: ${candidate.telegram}` : "Контакт пока не указан."}
         </p>
         <div className="w-full space-y-3">
           <button className="btn-green" onClick={() => setScreen("search-card")}>
@@ -703,6 +726,7 @@ export function AdmirerCandidatesScreen() {
                   ? { ...prev.currentAdmirerIndexByGoal, [activeGoalId]: index >= 0 ? index : prev.currentAdmirerIndex }
                   : prev.currentAdmirerIndexByGoal,
             }))
+            setScreen("search-profile")
           }}
           primaryActionLabel={candidate.isFavorite ? "Уже в твоих лайках" : "Лайкнуть в ответ"}
           onPrimaryAction={
