@@ -6,7 +6,6 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).notNull().unique(),
   passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
   telegramUsername: varchar("telegramUsername", { length: 255 }),
-  lastSeenAt: timestamp("lastSeenAt"),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   isProfileComplete: boolean("isProfileComplete").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

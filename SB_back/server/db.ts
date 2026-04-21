@@ -19,7 +19,6 @@ import {
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
-const LAST_SEEN_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(
@@ -60,7 +59,6 @@ export async function createUser(
       email,
       passwordHash,
       telegramUsername: telegramUsername || null,
-      lastSeenAt: new Date(),
       role: "user",
       isProfileComplete: false,
     });
@@ -96,10 +94,7 @@ export async function getUserById(id: number): Promise<User | null> {
   return result[0] ?? null;
 }
 
-export async function touchUserLastSeen(
-  userId: number,
-  options?: { force?: boolean; previousLastSeenAt?: Date | null },
-): Promise<void> {
+export async function touchUserLastSeen(userId: number): Promise<void> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot update last seen: database not available");
@@ -107,21 +102,11 @@ export async function touchUserLastSeen(
   }
 
   const now = new Date();
-  const isForced = options?.force === true;
-  const previousLastSeenAt = options?.previousLastSeenAt;
-
-  if (!isForced && previousLastSeenAt) {
-    const elapsed = now.getTime() - new Date(previousLastSeenAt).getTime();
-    if (elapsed < LAST_SEEN_UPDATE_INTERVAL_MS) {
-      return;
-    }
-  }
 
   try {
     await db
       .update(users)
       .set({
-        lastSeenAt: now,
         updatedAt: now,
       })
       .where(eq(users.id, userId));
@@ -586,13 +571,18 @@ export async function hasEmailNotificationByKey(notificationKey: string): Promis
     return false;
   }
 
-  const rows = await db
-    .select({ id: emailNotifications.id })
-    .from(emailNotifications)
-    .where(eq(emailNotifications.notificationKey, notificationKey))
-    .limit(1);
+  try {
+    const rows = await db
+      .select({ id: emailNotifications.id })
+      .from(emailNotifications)
+      .where(eq(emailNotifications.notificationKey, notificationKey))
+      .limit(1);
 
-  return rows.length > 0;
+    return rows.length > 0;
+  } catch (error) {
+    console.warn("[Database] Email notifications table is not available yet:", error);
+    return false;
+  }
 }
 
 export async function hasRecentEmailNotification(
@@ -606,20 +596,25 @@ export async function hasRecentEmailNotification(
     return false;
   }
 
-  const threshold = new Date(Date.now() - withinMs);
-  const rows = await db
-    .select({ id: emailNotifications.id })
-    .from(emailNotifications)
-    .where(
-      and(
-        eq(emailNotifications.userId, userId),
-        eq(emailNotifications.notificationType, notificationType),
-        gt(emailNotifications.sentAt, threshold),
-      ),
-    )
-    .limit(1);
+  try {
+    const threshold = new Date(Date.now() - withinMs);
+    const rows = await db
+      .select({ id: emailNotifications.id })
+      .from(emailNotifications)
+      .where(
+        and(
+          eq(emailNotifications.userId, userId),
+          eq(emailNotifications.notificationType, notificationType),
+          gt(emailNotifications.sentAt, threshold),
+        ),
+      )
+      .limit(1);
 
-  return rows.length > 0;
+    return rows.length > 0;
+  } catch (error) {
+    console.warn("[Database] Email notifications table is not available yet:", error);
+    return false;
+  }
 }
 
 export async function createEmailNotification(

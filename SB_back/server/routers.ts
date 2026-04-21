@@ -494,7 +494,7 @@ export const appRouter = router({
           });
         }
 
-        await db.touchUserLastSeen(user.id, { force: true });
+        await db.touchUserLastSeen(user.id);
         await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user) };
       }),
@@ -517,7 +517,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid password" });
         }
 
-        await db.touchUserLastSeen(user.id, { force: true });
+        await db.touchUserLastSeen(user.id);
         await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user) };
       }),
@@ -855,10 +855,14 @@ export const appRouter = router({
         const matched = await db.isFavorite(input.candidateId, ctx.user!.userId);
 
         if (matched) {
-          await notifyUsersAboutMatch({
-            userId: ctx.user!.userId,
-            candidateId: input.candidateId,
-          });
+          try {
+            await notifyUsersAboutMatch({
+              userId: ctx.user!.userId,
+              candidateId: input.candidateId,
+            });
+          } catch (error) {
+            console.error("[EmailNotifications] Match email failed:", error);
+          }
         }
 
         return {

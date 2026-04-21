@@ -182,7 +182,7 @@ export async function runInactiveUsersReminderJob(): Promise<void> {
         continue;
       }
 
-      const lastSeenSource = user.lastSeenAt ?? user.updatedAt ?? user.createdAt;
+      const lastSeenSource = user.updatedAt ?? user.createdAt;
       if (!lastSeenSource) {
         continue;
       }
