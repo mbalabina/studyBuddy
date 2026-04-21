@@ -98,7 +98,7 @@ export default function Survey2Screen() {
       setError(null)
 
       try {
-        await saveProfile()
+        await saveProfile(finalPreferenceUpdates)
         await savePreferences(finalPreferenceUpdates)
         await loadCandidates()
         // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск

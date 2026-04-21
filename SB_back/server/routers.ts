@@ -14,11 +14,33 @@ function normalizeStringArray(value: JsonArrayValue): string[] {
   return [];
 }
 
+function normalizeComparableValues(value: JsonArrayValue): string[] {
+  return Array.from(
+    new Set(
+      normalizeStringArray(value)
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
 function normalizeGoalValue(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-async function getGoalSimilarity(selectedGoalName: string, candidateGoalName: string): Promise<number> {
+function buildGoalSimilarityText(goalName: string, goalDescription?: string): string {
+  const description = (goalDescription ?? "").trim();
+  if (description) return description;
+  return goalName.trim();
+}
+
+async function getGoalSimilarity(params: {
+  selectedGoalName: string;
+  candidateGoalName: string;
+  selectedGoalDescription?: string;
+  candidateGoalDescription?: string;
+}): Promise<number> {
+  const { selectedGoalName, candidateGoalName, selectedGoalDescription, candidateGoalDescription } = params;
   const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName);
   const normalizedCandidateGoal = normalizeGoalValue(candidateGoalName);
 
@@ -26,100 +48,140 @@ async function getGoalSimilarity(selectedGoalName: string, candidateGoalName: st
     return 0.5;
   }
 
-  // Быстрый путь: для строгого фильтра по целям совпадение уже точное
-  if (normalizedSelectedGoal === normalizedCandidateGoal) {
+  const selectedText = buildGoalSimilarityText(selectedGoalName, selectedGoalDescription);
+  const candidateText = buildGoalSimilarityText(candidateGoalName, candidateGoalDescription);
+
+  if (!selectedText || !candidateText) {
+    return 0.5;
+  }
+
+  if (normalizeGoalValue(selectedText) === normalizeGoalValue(candidateText)) {
     return 1;
   }
 
-  return compareGoals(selectedGoalName, candidateGoalName);
+  return compareGoals(selectedText, candidateText);
 }
 
 /**
  * Алгоритм совместимости двух пользователей.
  *
- * Веса (итого 100 баллов):
- *   35 — схожесть учебных целей (оценивает Groq AI)
- *   25 — совпадение формата обучения (Online / Offline / Both)
- *   15 — общие предметы
- *   10 — совпадение расписания
- *   10 — совпадение уровня языка
- *    3 — стиль общения
- *    2 — город
+ * Формула из файла:
+ *  1) Личностные черты — 10%
+ *  2) Стиль обучения — 25% (Jaccard)
+ *  3) Мотивация — 20%
+ *  4) Цели (описания) — 15% (LLM similarity)
+ *  5) Режим работы — 25%
+ *  6) Уровень подготовки — 15%
+ *
+ * Веса в исходном документе суммарно дают 110, поэтому мы
+ * нормируем по доступным критериям (score / maxScore * 100).
  */
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function overlapSimilarity(left: JsonArrayValue, right: JsonArrayValue): number | null {
+  const a = normalizeComparableValues(left);
+  const b = normalizeComparableValues(right);
+  if (a.length === 0 || b.length === 0) return null;
+
+  const bSet = new Set(b);
+  const intersection = a.filter((item) => bSet.has(item)).length;
+  return clampUnit(intersection / Math.max(a.length, b.length));
+}
+
+function jaccardSimilarity(left: JsonArrayValue, right: JsonArrayValue): number | null {
+  const a = normalizeComparableValues(left);
+  const b = normalizeComparableValues(right);
+  if (a.length === 0 || b.length === 0) return null;
+
+  const bSet = new Set(b);
+  const intersection = a.filter((item) => bSet.has(item)).length;
+  const union = new Set([...a, ...b]).size;
+  if (union === 0) return null;
+  return clampUnit(intersection / union);
+}
+
+function traitsSimilarity(user1Profile: any, user2Profile: any): number | null {
+  const traits: Array<[number | null | undefined, number | null | undefined]> = [
+    [user1Profile?.organization, user2Profile?.organization],
+    [user1Profile?.sociability, user2Profile?.sociability],
+    [user1Profile?.friendliness, user2Profile?.friendliness],
+    [user1Profile?.stressResistance, user2Profile?.stressResistance],
+  ];
+
+  const deltas = traits
+    .filter(([left, right]) => typeof left === "number" && typeof right === "number")
+    .map(([left, right]) => Math.abs(Number(left) - Number(right)));
+
+  if (deltas.length === 0) return null;
+
+  const averageDelta = deltas.reduce((sum, value) => sum + value, 0) / deltas.length;
+  // Шкала в анкете 1..5, максимальная разница = 4
+  return clampUnit(1 - averageDelta / 4);
+}
+
+function levelSimilarity(leftLevel: string | null | undefined, rightLevel: string | null | undefined): number | null {
+  const left = (leftLevel ?? "").trim();
+  const right = (rightLevel ?? "").trim();
+  if (!left || !right) return null;
+  if (left === right) return 1;
+
+  const levelOrder = [
+    "Только начинаю",
+    "Базовое понимание",
+    "Глубоко погружен в тему",
+  ];
+  const leftIdx = levelOrder.indexOf(left);
+  const rightIdx = levelOrder.indexOf(right);
+  if (leftIdx === -1 || rightIdx === -1) return 0;
+
+  const distance = Math.abs(leftIdx - rightIdx);
+  if (distance === 1) return 0.5;
+  return 0;
+}
+
 function calculateCompatibility(
-  user1Profile: any,
-  user1Prefs: any,
-  user2Profile: any,
+  currentProfile: any,
+  candidateProfile: any,
   goalSimilarity: number = 0.5,
 ): number {
   let score = 0;
   let maxScore = 0;
 
-  // ── 1. Схожесть учебных целей (35 баллов) ────────────────────────
-  if (user1Profile?.studyGoal || user2Profile?.studyGoal) {
-    maxScore += 35;
-    score += Math.round(goalSimilarity * 35);
+  const traits = traitsSimilarity(currentProfile, candidateProfile);
+  if (traits !== null) {
+    maxScore += 10;
+    score += traits * 10;
   }
 
-  // ── 2. Формат обучения (25 баллов) ───────────────────────────────
-  // Сравниваем реальные значения, а не просто факт наличия поля
-  if (user1Prefs?.learningFormat && user2Profile?.learningFormat) {
+  const learningStyle = jaccardSimilarity(currentProfile?.learningStyle, candidateProfile?.learningStyle);
+  if (learningStyle !== null) {
     maxScore += 25;
-    if (
-      user1Prefs.learningFormat === user2Profile.learningFormat ||
-      user1Prefs.learningFormat === "Both" ||
-      user2Profile.learningFormat === "Both"
-    ) {
-      score += 25;
-    }
+    score += learningStyle * 25;
   }
 
-  // ── 3. Общие предметы (15 баллов) ────────────────────────────────
-  if (user1Profile?.subjects && user2Profile?.subjects) {
+  const motivation = overlapSimilarity(currentProfile?.motivation, candidateProfile?.motivation);
+  if (motivation !== null) {
+    maxScore += 20;
+    score += motivation * 20;
+  }
+
+  if (typeof goalSimilarity === "number") {
     maxScore += 15;
-    const commonSubjects = normalizeStringArray(user1Profile.subjects).filter((item) =>
-      normalizeStringArray(user2Profile.subjects).includes(item),
-    );
-    score += Math.min(15, commonSubjects.length * 5);
+    score += clampUnit(goalSimilarity) * 15;
   }
 
-  // ── 4. Совпадение расписания (10 баллов) ─────────────────────────
-  if (user1Prefs?.preferredSchedule && user2Profile?.schedule) {
-    maxScore += 10;
-    const commonSlots = normalizeStringArray(user1Prefs.preferredSchedule).filter((item) =>
-      normalizeStringArray(user2Profile.schedule).includes(item),
-    );
-    if (commonSlots.length > 0) {
-      score += 10;
-    }
+  const schedule = overlapSimilarity(currentProfile?.schedule, candidateProfile?.schedule);
+  if (schedule !== null) {
+    maxScore += 25;
+    score += schedule * 25;
   }
 
-  // ── 5. Уровень языка (10 баллов) ─────────────────────────────────
-  if (user1Prefs?.preferredLevel && user2Profile?.proficiencyLevel) {
-    maxScore += 10;
-    if (
-      user1Prefs.preferredLevel === user2Profile.proficiencyLevel ||
-      user1Prefs.preferredLevel === "Any"
-    ) {
-      score += 10;
-    }
-  }
-
-  // ── 6. Стиль общения (3 балла) ────────────────────────────────────
-  // Сравниваем реальные значения кандидата
-  if (user1Prefs?.communicationStyle && user2Profile?.communicationStyle) {
-    maxScore += 3;
-    if (user1Prefs.communicationStyle === user2Profile.communicationStyle) {
-      score += 3;
-    }
-  }
-
-  // ── 7. Город (2 балла) ────────────────────────────────────────────
-  if (user1Prefs?.city && user2Profile?.city) {
-    maxScore += 2;
-    if (user1Prefs.city.toLowerCase() === user2Profile.city.toLowerCase()) {
-      score += 2;
-    }
+  const level = levelSimilarity(currentProfile?.proficiencyLevel, candidateProfile?.proficiencyLevel);
+  if (level !== null) {
+    maxScore += 15;
+    score += level * 15;
   }
 
   if (maxScore === 0) return 50;
@@ -232,16 +294,15 @@ function resolveSelectedGoal(params: {
 async function searchUsersCore(params: { currentUserId: number; input: SearchUsersInput }) {
   const { currentUserId, input } = params;
 
-  const [currentProfile, currentPreferences, allUsers, allProfiles, currentGoals] =
+  const [currentProfile, allUsers, allProfiles, currentGoals] =
     await Promise.all([
       db.getProfile(currentUserId),
-      db.getPreferences(currentUserId),
       db.getAllUsers(),
       db.getAllProfiles(),
       db.ensureUserGoalsFromLegacyProfile(currentUserId),
     ]);
 
-  const { selectedGoalId, selectedGoalName } = resolveSelectedGoal({
+  const { selectedGoalId, selectedGoalName, selectedGoalDescription } = resolveSelectedGoal({
     input,
     currentGoals,
     currentProfile,
@@ -356,14 +417,19 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
         const matchedGoalName = matchedGoal?.name?.trim() || profile?.studyGoal || "";
         const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
 
-        const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
+        const goalSimilarity = await getGoalSimilarity({
+          selectedGoalName,
+          candidateGoalName: matchedGoalName,
+          selectedGoalDescription,
+          candidateGoalDescription: matchedGoalDescription,
+        });
 
         const profileForCompatibility = profile
           ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
           : null;
 
         const compatibility = profileForCompatibility
-          ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
+          ? calculateCompatibility(currentProfile, profileForCompatibility, goalSimilarity)
           : 0;
 
         return buildCandidateCard({
@@ -525,6 +591,13 @@ export const appRouter = router({
           proficiencyLevel: z.string().optional(),
           subjects:         z.array(z.string()).optional(),
           schedule:         z.array(z.string()).optional(),
+          motivation:       z.array(z.string()).optional(),
+          learningStyle:    z.array(z.string()).optional(),
+          additionalGoals:  z.array(z.string()).optional(),
+          organization:     z.number().optional(),
+          sociability:      z.number().optional(),
+          friendliness:     z.number().optional(),
+          stressResistance: z.number().optional(),
           bio:              z.string().optional(),
           experience:       z.string().optional(),
           learningFormat:   z.string().optional(),
@@ -546,6 +619,13 @@ export const appRouter = router({
             proficiencyLevel: input.proficiencyLevel,
             subjects:         input.subjects,
             schedule:         input.schedule,
+            motivation:       input.motivation,
+            learningStyle:    input.learningStyle,
+            additionalGoals:  input.additionalGoals,
+            organization:     input.organization,
+            sociability:      input.sociability,
+            friendliness:     input.friendliness,
+            stressResistance: input.stressResistance,
             bio:              input.bio,
             experience:       input.experience,
             learningFormat:   input.learningFormat,
@@ -695,11 +775,10 @@ export const appRouter = router({
     getCandidate: protectedProcedure
       .input(z.object({ candidateId: z.number(), goalId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
-        const [user, profile, currentProfile, currentPreferences, currentGoals] = await Promise.all([
+        const [user, profile, currentProfile, currentGoals] = await Promise.all([
           db.getUserById(input.candidateId),
           db.getProfile(input.candidateId),
           db.getProfile(ctx.user!.userId),
-          db.getPreferences(ctx.user!.userId),
           db.ensureUserGoalsFromLegacyProfile(ctx.user!.userId),
         ]);
 
@@ -707,7 +786,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Candidate not found" });
         }
 
-        const { selectedGoalId, selectedGoalName } = resolveSelectedGoal({
+        const { selectedGoalId, selectedGoalName, selectedGoalDescription } = resolveSelectedGoal({
           input: {
             limit: 1,
             offset: 0,
@@ -727,7 +806,12 @@ export const appRouter = router({
         const matchedGoalDescription = matchedGoal?.description ?? profile.bio ?? "";
 
         const isFavorite = await db.isFavorite(ctx.user!.userId, input.candidateId, selectedGoalId);
-        const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
+        const goalSimilarity = await getGoalSimilarity({
+          selectedGoalName,
+          candidateGoalName: matchedGoalName,
+          selectedGoalDescription,
+          candidateGoalDescription: matchedGoalDescription,
+        });
 
         const profileForCompatibility = {
           ...profile,
@@ -737,7 +821,6 @@ export const appRouter = router({
 
         const compatibility = calculateCompatibility(
           currentProfile,
-          currentPreferences,
           profileForCompatibility,
           goalSimilarity,
         );
@@ -786,10 +869,9 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
       const currentUserId = ctx.user!.userId;
 
-      const [currentProfile, currentPreferences, currentGoals] =
+      const [currentProfile, currentGoals] =
         await Promise.all([
           db.getProfile(currentUserId),
-          db.getPreferences(currentUserId),
           db.ensureUserGoalsFromLegacyProfile(currentUserId),
         ]);
 
@@ -798,6 +880,10 @@ export const appRouter = router({
       const selectedGoalName =
         currentGoals.find((goal) => goal.id === selectedGoalId)?.name ??
         currentProfile?.studyGoal ??
+        "";
+      const selectedGoalDescription =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.description ??
+        currentProfile?.bio ??
         "";
 
       const [favoriteIds, allUsers, allProfiles] = await Promise.all([
@@ -833,12 +919,17 @@ export const appRouter = router({
               ) ?? null;
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
-            const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
+            const goalSimilarity = await getGoalSimilarity({
+              selectedGoalName,
+              candidateGoalName: matchedGoalName,
+              selectedGoalDescription,
+              candidateGoalDescription: matchedGoalDescription,
+            });
             const profileForCompatibility = profile
               ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
               : null;
             const compatibility = profileForCompatibility
-              ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
+              ? calculateCompatibility(currentProfile, profileForCompatibility, goalSimilarity)
               : 0;
             return buildCandidateCard({
               user,
@@ -859,10 +950,9 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
       const currentUserId = ctx.user!.userId;
 
-      const [currentProfile, currentPreferences, currentGoals] =
+      const [currentProfile, currentGoals] =
         await Promise.all([
           db.getProfile(currentUserId),
-          db.getPreferences(currentUserId),
           db.ensureUserGoalsFromLegacyProfile(currentUserId),
         ]);
 
@@ -871,6 +961,10 @@ export const appRouter = router({
       const selectedGoalName =
         currentGoals.find((goal) => goal.id === selectedGoalId)?.name ??
         currentProfile?.studyGoal ??
+        "";
+      const selectedGoalDescription =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.description ??
+        currentProfile?.bio ??
         "";
       const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName);
 
@@ -923,12 +1017,17 @@ export const appRouter = router({
               ) ?? null;
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
-            const goalSimilarity = await getGoalSimilarity(selectedGoalName, matchedGoalName);
+            const goalSimilarity = await getGoalSimilarity({
+              selectedGoalName,
+              candidateGoalName: matchedGoalName,
+              selectedGoalDescription,
+              candidateGoalDescription: matchedGoalDescription,
+            });
             const profileForCompatibility = profile
               ? { ...profile, studyGoal: matchedGoalName, bio: matchedGoalDescription }
               : null;
             const compatibility = profileForCompatibility
-              ? calculateCompatibility(currentProfile, currentPreferences, profileForCompatibility, goalSimilarity)
+              ? calculateCompatibility(currentProfile, profileForCompatibility, goalSimilarity)
               : 0;
             return buildCandidateCard({
               user,

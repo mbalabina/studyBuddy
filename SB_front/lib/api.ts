@@ -79,6 +79,13 @@ export const profileAPI = {
     proficiencyLevel?: string
     subjects?: string[]
     schedule?: string[]
+    motivation?: string[]
+    learningStyle?: string[]
+    additionalGoals?: string[]
+    organization?: number
+    sociability?: number
+    friendliness?: number
+    stressResistance?: number
     bio?: string
     experience?: string
     avatarUrl?: string

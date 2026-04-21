@@ -36,6 +36,13 @@
       "when": 1776366000000,
       "tag": "0004_goal_scoped_matching",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1776768600000,
+      "tag": "0005_formula_profile_fields",
+      "breakpoints": true
     }
   ]
 }
