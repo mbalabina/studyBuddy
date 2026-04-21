@@ -8,6 +8,7 @@ import { compareGoals } from "./groq";
 import { notifyUsersAboutMatch } from "./email-notifications";
 
 type JsonArrayValue = string[] | null | undefined;
+const LANGUAGE_STUDY_GOAL = "изучение языка";
 
 function normalizeStringArray(value: JsonArrayValue): string[] {
   if (!value) return [];
@@ -27,6 +28,50 @@ function normalizeComparableValues(value: JsonArrayValue): string[] {
 
 function normalizeGoalValue(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+function normalizeGoalLanguage(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isLanguageStudyGoal(goalName: string | null | undefined): boolean {
+  return normalizeGoalValue(goalName) === LANGUAGE_STUDY_GOAL;
+}
+
+function isGoalLanguageMatch(params: {
+  goal: { language?: string | null };
+  selectedGoalName: string;
+  selectedGoalLanguage?: string | null;
+}): boolean {
+  const { goal, selectedGoalName, selectedGoalLanguage } = params;
+  if (!isLanguageStudyGoal(selectedGoalName)) return true;
+
+  const selectedLanguage = normalizeGoalLanguage(selectedGoalLanguage);
+  if (!selectedLanguage) return true;
+
+  return normalizeGoalLanguage(goal.language) === selectedLanguage;
+}
+
+function pickMatchedGoal(params: {
+  goals: Array<{ name: string; description?: string | null; language?: string | null }>;
+  selectedGoalName: string;
+  selectedGoalLanguage?: string | null;
+}) {
+  const { goals, selectedGoalName, selectedGoalLanguage } = params;
+  const normalizedGoalName = normalizeGoalValue(selectedGoalName);
+  const byName = goals.filter((goal) => normalizeGoalValue(goal.name) === normalizedGoalName);
+  if (byName.length === 0) return null;
+
+  if (!isLanguageStudyGoal(selectedGoalName)) {
+    return byName[0] ?? null;
+  }
+
+  const selectedLanguage = normalizeGoalLanguage(selectedGoalLanguage);
+  if (!selectedLanguage) {
+    return byName[0] ?? null;
+  }
+
+  return byName.find((goal) => normalizeGoalLanguage(goal.language) === selectedLanguage) ?? null;
 }
 
 function buildGoalSimilarityText(goalName: string, goalDescription?: string): string {
@@ -196,8 +241,9 @@ function buildCandidateCard(params: {
   isFavorite: boolean;
   goal?: string;
   goalDescription?: string;
+  goalLanguage?: string;
 }) {
-  const { user, profile, compatibility, isFavorite, goal, goalDescription } = params;
+  const { user, profile, compatibility, isFavorite, goal, goalDescription, goalLanguage } = params;
 
   if (!user) {
     return null;
@@ -216,6 +262,7 @@ function buildCandidateCard(params: {
     compatibility,
     goal: goal ?? (profile?.studyGoal || ""),
     goalDescription: goalDescription ?? (profile?.bio || ""),
+    goalLanguage: goalLanguage ?? "",
     bio: profile?.bio || "",
     proficiencyLevel: profile?.proficiencyLevel || "",
     subjects: normalizeStringArray(profile?.subjects),
@@ -264,6 +311,7 @@ function resolveSelectedGoal(params: {
       selectedGoalId: selected.id,
       selectedGoalName: selected.name,
       selectedGoalDescription: selected.description ?? "",
+      selectedGoalLanguage: selected.language ?? "",
     };
   }
 
@@ -273,6 +321,7 @@ function resolveSelectedGoal(params: {
       selectedGoalId: undefined,
       selectedGoalName,
       selectedGoalDescription: "",
+      selectedGoalLanguage: "",
     };
   }
 
@@ -282,6 +331,7 @@ function resolveSelectedGoal(params: {
       selectedGoalId: activeGoal.id,
       selectedGoalName: activeGoal.name,
       selectedGoalDescription: activeGoal.description ?? "",
+      selectedGoalLanguage: activeGoal.language ?? "",
     };
   }
 
@@ -289,6 +339,7 @@ function resolveSelectedGoal(params: {
     selectedGoalId: undefined,
     selectedGoalName: currentProfile?.studyGoal ?? "",
     selectedGoalDescription: currentProfile?.bio ?? "",
+    selectedGoalLanguage: "",
   };
 }
 
@@ -303,7 +354,7 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
       db.ensureUserGoalsFromLegacyProfile(currentUserId),
     ]);
 
-  const { selectedGoalId, selectedGoalName, selectedGoalDescription } = resolveSelectedGoal({
+  const { selectedGoalId, selectedGoalName, selectedGoalDescription, selectedGoalLanguage } = resolveSelectedGoal({
     input,
     currentGoals,
     currentProfile,
@@ -394,29 +445,42 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
       if (typeof input.maxAge === "number" && (profile.age ?? 999) > input.maxAge) return false;
 
       // Hard filter: кандидат должен иметь цель, которая строго совпадает с активной целью
-      const candidateGoals = (goalMap.get(user.id) ?? [])
-        .filter((goal) => normalizeGoalValue(goal.name))
-        .map((goal) => normalizeGoalValue(goal.name));
-      if (candidateGoals.length === 0 && profile?.studyGoal) {
-        candidateGoals.push(normalizeGoalValue(profile.studyGoal));
-      }
-      if (candidateGoals.length === 0) return false;
-      if (!candidateGoals.includes(normalizedActiveGoal)) return false;
+      const candidateGoals = (goalMap.get(user.id) ?? []).filter((goal) => normalizeGoalValue(goal.name));
+      const hasMatchByGoalsTable = candidateGoals.some((goal) => (
+        normalizeGoalValue(goal.name) === normalizedActiveGoal &&
+        isGoalLanguageMatch({
+          goal,
+          selectedGoalName,
+          selectedGoalLanguage,
+        })
+      ));
+      if (hasMatchByGoalsTable) return true;
 
-      return true;
+      // Legacy fallback: если целей нет в новой таблице, пробуем старое поле профиля.
+      if (candidateGoals.length === 0 && profile?.studyGoal) {
+        if (normalizeGoalValue(profile.studyGoal) !== normalizedActiveGoal) return false;
+        if (isLanguageStudyGoal(selectedGoalName) && normalizeGoalLanguage(selectedGoalLanguage)) {
+          return false;
+        }
+        return true;
+      }
+
+      return false;
     });
 
   // Запрашиваем Groq для всех кандидатов параллельно (кэш в groq.ts предотвращает дубли)
   const items = (
     await Promise.all(
       filtered.map(async ({ user, profile }) => {
-        const matchedGoal =
-          (goalMap.get(user.id) ?? []).find(
-            (goal) => normalizeGoalValue(goal.name) === normalizedActiveGoal,
-          ) ?? null;
+        const matchedGoal = pickMatchedGoal({
+          goals: goalMap.get(user.id) ?? [],
+          selectedGoalName,
+          selectedGoalLanguage,
+        });
 
         const matchedGoalName = matchedGoal?.name?.trim() || profile?.studyGoal || "";
         const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+        const matchedGoalLanguage = matchedGoal?.language ?? "";
 
         const goalSimilarity = await getGoalSimilarity({
           selectedGoalName,
@@ -440,6 +504,7 @@ async function searchUsersCore(params: { currentUserId: number; input: SearchUse
           isFavorite: favoritesSet.has(user.id),
           goal: matchedGoalName,
           goalDescription: matchedGoalDescription,
+          goalLanguage: matchedGoalLanguage,
         });
       }),
     )
@@ -712,6 +777,7 @@ export const appRouter = router({
         z.object({
           name: z.string().trim().min(1),
           description: z.string().optional(),
+          language: z.string().optional(),
           makeActive: z.boolean().optional().default(true),
         }),
       )
@@ -719,6 +785,7 @@ export const appRouter = router({
         const goal = await db.createUserGoal(ctx.user!.userId, {
           name: input.name,
           description: input.description,
+          language: input.language,
           isActive: input.makeActive,
         });
 
@@ -789,7 +856,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Candidate not found" });
         }
 
-        const { selectedGoalId, selectedGoalName, selectedGoalDescription } = resolveSelectedGoal({
+        const { selectedGoalId, selectedGoalName, selectedGoalDescription, selectedGoalLanguage } = resolveSelectedGoal({
           input: {
             limit: 1,
             offset: 0,
@@ -801,12 +868,14 @@ export const appRouter = router({
         });
 
         const candidateGoals = await db.getUserGoals(input.candidateId);
-        const matchedGoal =
-          candidateGoals.find(
-            (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
-          ) ?? null;
+        const matchedGoal = pickMatchedGoal({
+          goals: candidateGoals,
+          selectedGoalName,
+          selectedGoalLanguage,
+        });
         const matchedGoalName = matchedGoal?.name ?? profile.studyGoal ?? "";
         const matchedGoalDescription = matchedGoal?.description ?? profile.bio ?? "";
+        const matchedGoalLanguage = matchedGoal?.language ?? "";
 
         const isFavorite = await db.isFavorite(ctx.user!.userId, input.candidateId, selectedGoalId);
         const goalSimilarity = await getGoalSimilarity({
@@ -834,6 +903,7 @@ export const appRouter = router({
           isFavorite,
           goal: matchedGoalName,
           goalDescription: matchedGoalDescription,
+          goalLanguage: matchedGoalLanguage,
         });
       }),
   }),
@@ -899,6 +969,9 @@ export const appRouter = router({
         currentGoals.find((goal) => goal.id === selectedGoalId)?.description ??
         currentProfile?.bio ??
         "";
+      const selectedGoalLanguage =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.language ??
+        "";
 
       const [favoriteIds, allUsers, allProfiles] = await Promise.all([
         db.getUserFavorites(currentUserId, selectedGoalId),
@@ -927,12 +1000,14 @@ export const appRouter = router({
           .filter((u) => favSet.has(u.id))
           .map(async (user) => {
             const profile = profileMap.get(user.id) ?? null;
-            const matchedGoal =
-              (goalMap.get(user.id) ?? []).find(
-                (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
-              ) ?? null;
+            const matchedGoal = pickMatchedGoal({
+              goals: goalMap.get(user.id) ?? [],
+              selectedGoalName,
+              selectedGoalLanguage,
+            });
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+            const matchedGoalLanguage = matchedGoal?.language ?? "";
             const goalSimilarity = await getGoalSimilarity({
               selectedGoalName,
               candidateGoalName: matchedGoalName,
@@ -952,6 +1027,7 @@ export const appRouter = router({
               isFavorite: true,
               goal: matchedGoalName,
               goalDescription: matchedGoalDescription,
+              goalLanguage: matchedGoalLanguage,
             });
           }),
       );
@@ -979,6 +1055,9 @@ export const appRouter = router({
       const selectedGoalDescription =
         currentGoals.find((goal) => goal.id === selectedGoalId)?.description ??
         currentProfile?.bio ??
+        "";
+      const selectedGoalLanguage =
+        currentGoals.find((goal) => goal.id === selectedGoalId)?.language ??
         "";
       const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName);
 
@@ -1014,23 +1093,37 @@ export const appRouter = router({
           .filter((u) => admireSet.has(u.id))
           .filter((user) => {
             const profile = profileMap.get(user.id) ?? null;
-            const candidateGoals = (goalMap.get(user.id) ?? [])
-              .filter((goal) => normalizeGoalValue(goal.name))
-              .map((goal) => normalizeGoalValue(goal.name));
+            const candidateGoals = (goalMap.get(user.id) ?? []).filter((goal) => normalizeGoalValue(goal.name));
+            const hasMatchByGoalsTable = candidateGoals.some((goal) => (
+              normalizeGoalValue(goal.name) === normalizedSelectedGoal &&
+              isGoalLanguageMatch({
+                goal,
+                selectedGoalName,
+                selectedGoalLanguage,
+              })
+            ));
+            if (hasMatchByGoalsTable) return true;
+
             if (candidateGoals.length === 0 && profile?.studyGoal) {
-              candidateGoals.push(normalizeGoalValue(profile.studyGoal));
+              if (normalizeGoalValue(profile.studyGoal) !== normalizedSelectedGoal) return false;
+              if (isLanguageStudyGoal(selectedGoalName) && normalizeGoalLanguage(selectedGoalLanguage)) {
+                return false;
+              }
+              return true;
             }
-            if (candidateGoals.length === 0) return false;
-            return candidateGoals.includes(normalizedSelectedGoal);
+
+            return false;
           })
           .map(async (user) => {
             const profile = profileMap.get(user.id) ?? null;
-            const matchedGoal =
-              (goalMap.get(user.id) ?? []).find(
-                (goal) => normalizeGoalValue(goal.name) === normalizedSelectedGoal,
-              ) ?? null;
+            const matchedGoal = pickMatchedGoal({
+              goals: goalMap.get(user.id) ?? [],
+              selectedGoalName,
+              selectedGoalLanguage,
+            });
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";
+            const matchedGoalLanguage = matchedGoal?.language ?? "";
             const goalSimilarity = await getGoalSimilarity({
               selectedGoalName,
               candidateGoalName: matchedGoalName,
@@ -1050,6 +1143,7 @@ export const appRouter = router({
               isFavorite: myFavorites.has(user.id),
               goal: matchedGoalName,
               goalDescription: matchedGoalDescription,
+              goalLanguage: matchedGoalLanguage,
             });
           }),
       );

@@ -5,6 +5,16 @@ import Image from "next/image"
 import { Search, Heart, Home, Plus, ChevronLeft, LogOut } from "lucide-react"
 import { useState } from "react"
 
+function formatGoalTitle(goal: { name: string; language?: string }) {
+  const name = goal.name?.trim() || ""
+  const language = goal.language?.trim() || ""
+  if (!name) return ""
+  if (name.toLowerCase() === "изучение языка" && language) {
+    return `${name} · ${language}`
+  }
+  return name
+}
+
 export default function HomeScreen() {
   const { state, setScreen } = useApp()
   const user = state.user
@@ -74,7 +84,7 @@ export default function HomeScreen() {
                 className="w-full bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-4 text-left border border-green-200"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <h3 className="text-xl font-bold">{goal.name}</h3>
+                  <h3 className="text-xl font-bold">{formatGoalTitle(goal)}</h3>
                   <button
                     className="text-gray-400 hover:text-gray-600"
                     title="Удалить"

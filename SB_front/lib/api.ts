@@ -105,7 +105,7 @@ export const profileAPI = {
 export const goalsAPI = {
   list: () =>
     callTRPC({ method: "query", procedure: "goals.list" }),
-  create: (data: { name: string; description?: string; makeActive?: boolean }) =>
+  create: (data: { name: string; description?: string; language?: string; makeActive?: boolean }) =>
     callTRPC({ method: "mutation", procedure: "goals.create", input: data }),
   setActive: (goalId: number) =>
     callTRPC({ method: "mutation", procedure: "goals.setActive", input: { goalId } }),

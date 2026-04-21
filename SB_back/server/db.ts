@@ -19,6 +19,10 @@ import {
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const LANGUAGE_STUDY_GOAL = "изучение языка";
+const GOAL_LANGUAGE_META_RE = /^\s*\[language:([^\]]+)\]\s*/i;
+
+export type UserGoalWithLanguage = UserStudyGoal & { language?: string | null };
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(
@@ -28,6 +32,73 @@ function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> 
 
 function normalizeGoalName(goal: string | null | undefined): string {
   return (goal ?? "").trim().toLowerCase();
+}
+
+function normalizeLanguage(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+function isLanguageStudyGoal(goalName: string | null | undefined): boolean {
+  return normalizeGoalName(goalName) === LANGUAGE_STUDY_GOAL;
+}
+
+function encodeGoalDescription(params: {
+  goalName: string;
+  description?: string | null;
+  language?: string | null;
+}): string | null {
+  const description = (params.description ?? "").trim();
+  const language = normalizeLanguage(params.language);
+
+  if (!isLanguageStudyGoal(params.goalName)) {
+    return description || null;
+  }
+
+  if (!language) {
+    return description || null;
+  }
+
+  return description ? `[language:${language}]\n${description}` : `[language:${language}]`;
+}
+
+function decodeGoalDescription(description: string | null | undefined): {
+  description: string | null;
+  language: string | null;
+} {
+  const raw = (description ?? "").trim();
+  if (!raw) {
+    return { description: null, language: null };
+  }
+
+  const match = raw.match(GOAL_LANGUAGE_META_RE);
+  if (!match) {
+    return { description: raw, language: null };
+  }
+
+  const language = normalizeLanguage(match[1] ?? "");
+  const cleanDescription = raw.replace(GOAL_LANGUAGE_META_RE, "").trim();
+  return {
+    description: cleanDescription || null,
+    language: language || null,
+  };
+}
+
+function toPublicGoal(goal: UserStudyGoal | null): UserGoalWithLanguage | null {
+  if (!goal) return null;
+  if (!isLanguageStudyGoal(goal.name)) {
+    return {
+      ...goal,
+      description: (goal.description ?? "").trim() || null,
+      language: null,
+    };
+  }
+
+  const decoded = decodeGoalDescription(goal.description);
+  return {
+    ...goal,
+    description: decoded.description,
+    language: decoded.language,
+  };
 }
 
 export async function getDb() {
@@ -165,21 +236,23 @@ export async function getProfile(userId: number): Promise<Profile | null> {
   return result[0] ?? null;
 }
 
-export async function getUserGoals(userId: number): Promise<UserStudyGoal[]> {
+export async function getUserGoals(userId: number): Promise<UserGoalWithLanguage[]> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get user goals: database not available");
     return [];
   }
 
-  return await db
+  const goals = await db
     .select()
     .from(userStudyGoals)
     .where(eq(userStudyGoals.userId, userId))
     .orderBy(desc(userStudyGoals.isActive), userStudyGoals.id);
+
+  return goals.map((goal) => toPublicGoal(goal)).filter((goal): goal is UserGoalWithLanguage => Boolean(goal));
 }
 
-export async function getGoalsByUserIds(userIds: number[]): Promise<UserStudyGoal[]> {
+export async function getGoalsByUserIds(userIds: number[]): Promise<UserGoalWithLanguage[]> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get goals by user ids: database not available");
@@ -190,14 +263,16 @@ export async function getGoalsByUserIds(userIds: number[]): Promise<UserStudyGoa
     return [];
   }
 
-  return await db
+  const goals = await db
     .select()
     .from(userStudyGoals)
     .where(inArray(userStudyGoals.userId, userIds))
     .orderBy(desc(userStudyGoals.isActive), userStudyGoals.id);
+
+  return goals.map((goal) => toPublicGoal(goal)).filter((goal): goal is UserGoalWithLanguage => Boolean(goal));
 }
 
-export async function getUserGoalById(goalId: number): Promise<UserStudyGoal | null> {
+export async function getUserGoalById(goalId: number): Promise<UserGoalWithLanguage | null> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get goal by id: database not available");
@@ -210,10 +285,10 @@ export async function getUserGoalById(goalId: number): Promise<UserStudyGoal | n
     .where(eq(userStudyGoals.id, goalId))
     .limit(1);
 
-  return result[0] ?? null;
+  return toPublicGoal(result[0] ?? null);
 }
 
-export async function getActiveUserGoal(userId: number): Promise<UserStudyGoal | null> {
+export async function getActiveUserGoal(userId: number): Promise<UserGoalWithLanguage | null> {
   const goals = await getUserGoals(userId);
   if (goals.length === 0) return null;
 
@@ -225,9 +300,10 @@ export async function createUserGoal(
   data: {
     name: string;
     description?: string | null;
+    language?: string | null;
     isActive?: boolean;
   },
-): Promise<UserStudyGoal | null> {
+): Promise<UserGoalWithLanguage | null> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot create user goal: database not available");
@@ -252,7 +328,11 @@ export async function createUserGoal(
     const payload: InsertUserStudyGoal = {
       userId,
       name,
-      description: data.description ?? null,
+      description: encodeGoalDescription({
+        goalName: name,
+        description: data.description,
+        language: data.language,
+      }),
       isActive: shouldActivate,
     };
 
@@ -274,7 +354,7 @@ export async function createUserGoal(
   }
 }
 
-export async function setActiveUserGoal(userId: number, goalId: number): Promise<UserStudyGoal | null> {
+export async function setActiveUserGoal(userId: number, goalId: number): Promise<UserGoalWithLanguage | null> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot activate goal: database not available");
@@ -316,7 +396,8 @@ export async function upsertUserGoalByName(
   userId: number,
   name: string,
   description?: string | null,
-): Promise<UserStudyGoal | null> {
+  language?: string | null,
+): Promise<UserGoalWithLanguage | null> {
   const normalizedName = normalizeGoalName(name);
   if (!normalizedName) return null;
 
@@ -334,6 +415,7 @@ export async function upsertUserGoalByName(
       return await createUserGoal(userId, {
         name: name.trim(),
         description,
+        language,
         isActive: true,
       });
     }
@@ -343,11 +425,19 @@ export async function upsertUserGoalByName(
       .set({ isActive: false, updatedAt: new Date() })
       .where(eq(userStudyGoals.userId, userId));
 
+    const existingLanguage = existing.language ?? null;
+    const finalLanguage =
+      language !== undefined ? normalizeLanguage(language) || null : existingLanguage;
+
     await db
       .update(userStudyGoals)
       .set({
         name: name.trim(),
-        description: description ?? existing.description ?? null,
+        description: encodeGoalDescription({
+          goalName: name.trim(),
+          description: description ?? existing.description ?? null,
+          language: finalLanguage,
+        }),
         isActive: true,
         updatedAt: new Date(),
       })
@@ -365,7 +455,7 @@ export async function upsertUserGoalByName(
   }
 }
 
-export async function ensureUserGoalsFromLegacyProfile(userId: number): Promise<UserStudyGoal[]> {
+export async function ensureUserGoalsFromLegacyProfile(userId: number): Promise<UserGoalWithLanguage[]> {
   const goals = await getUserGoals(userId);
   if (goals.length > 0) {
     return goals;

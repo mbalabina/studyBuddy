@@ -220,15 +220,33 @@ function CongratsScreen() {
 function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
   const { setScreen, addStudyGoal } = useApp()
   const [goalName, setGoalName] = useState("")
+  const [goalLanguage, setGoalLanguage] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const goalOptions = ["Языковой экзамен", "ЕГЭ", "Поступление", "Стажировка", "Другое"]
+  const languageGoalName = "Изучение языка"
+  const goalOptions = [languageGoalName, "Языковой экзамен", "ЕГЭ", "ОГЭ", "Поступление", "Стажировка", "Другое"]
+  const languageOptions = [
+    "Английский",
+    "Немецкий",
+    "Французский",
+    "Испанский",
+    "Итальянский",
+    "Китайский",
+    "Японский",
+    "Корейский",
+    "Арабский",
+    "Русский",
+  ]
 
   const handleNext = async () => {
     if (!goalName) {
       setScreen(nextTo as any)
+      return
+    }
+    if (goalName === languageGoalName && !goalLanguage.trim()) {
+      setError("Выбери язык для цели «Изучение языка»")
       return
     }
 
@@ -238,6 +256,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
       await addStudyGoal({
         name: goalName,
         description: goalDesc,
+        language: goalName === languageGoalName ? goalLanguage : "",
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
       })
       setScreen(nextTo as any)
@@ -264,13 +283,36 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
         </p>
         <div className="space-y-4 mb-6">
           <div className="relative">
-            <select value={goalName} onChange={(e) => setGoalName(e.target.value)}
+            <select
+              value={goalName}
+              onChange={(e) => {
+                const value = e.target.value
+                setGoalName(value)
+                if (value !== languageGoalName) {
+                  setGoalLanguage("")
+                }
+              }}
               className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors">
               <option value="">Твоя учебная цель</option>
               {goalOptions.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
             <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
           </div>
+          {goalName === languageGoalName && (
+            <div className="relative">
+              <select
+                value={goalLanguage}
+                onChange={(e) => setGoalLanguage(e.target.value)}
+                className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors"
+              >
+                <option value="">Какой язык хочешь изучать?</option>
+                {languageOptions.map((language) => (
+                  <option key={language} value={language}>{language}</option>
+                ))}
+              </select>
+              <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
+            </div>
+          )}
           <textarea placeholder="Описание (опционально)" value={goalDesc}
             onChange={(e) => setGoalDesc(e.target.value)}
             className="w-full py-3 border-b border-gray-200 focus:border-black outline-none transition-colors text-base resize-none" rows={3} />

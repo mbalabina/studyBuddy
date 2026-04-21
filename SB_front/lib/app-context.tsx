@@ -70,6 +70,7 @@ export interface StudyGoal {
   id: number
   name: string
   description: string
+  language?: string
   startDate: string
   isActive?: boolean
 }
@@ -86,6 +87,7 @@ export interface Candidate {
   course: string
   goal: string
   goalDescription: string
+  goalLanguage?: string
   telegram: string
   isFavorite?: boolean
 }
@@ -176,6 +178,14 @@ const AppContext = createContext<AppContextType | null>(null)
 
 function normalizeGoalValue(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase()
+}
+
+function normalizeLanguageValue(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function isLanguageStudyGoalName(goalName: string | null | undefined) {
+  return normalizeGoalValue(goalName) === "изучение языка"
 }
 
 function isNotFoundApiError(error: unknown) {
@@ -293,6 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { goal, goalIndex } = resolveGoalSelection(stateRef.current, goalIdOverride)
     const selectedGoalId = goal?.id
     const selectedGoalName = goal?.name?.trim() || ""
+    const selectedGoalLanguage = goal?.language?.trim() || ""
 
     setStateForSession(sessionVersion, (prev) => ({
       ...prev,
@@ -310,8 +321,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       const rawList: Candidate[] = Array.isArray(data) ? data : (data as { items?: Candidate[] })?.items ?? []
       const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName)
+      const normalizedSelectedLanguage = normalizeLanguageValue(selectedGoalLanguage)
       const list = normalizedSelectedGoal
-        ? rawList.filter((candidate) => normalizeGoalValue(candidate.goal) === normalizedSelectedGoal)
+        ? rawList.filter((candidate) => {
+            if (normalizeGoalValue(candidate.goal) !== normalizedSelectedGoal) {
+              return false
+            }
+
+            if (isLanguageStudyGoalName(selectedGoalName) && normalizedSelectedLanguage) {
+              return normalizeLanguageValue(candidate.goalLanguage) === normalizedSelectedLanguage
+            }
+
+            return true
+          })
         : []
 
       setStateForSession(sessionVersion, (prev) => ({
@@ -500,11 +522,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const safeUser = data?.user
 
       const goalsFromApi: StudyGoal[] = Array.isArray(data?.goals)
-        ? (data.goals as Array<{ id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }>)
+        ? (data.goals as Array<{ id: number; name: string; description?: string | null; language?: string | null; isActive?: boolean; createdAt?: string }>)
             .map((goal) => ({
               id: Number(goal.id),
               name: goal.name || "",
               description: goal.description || "",
+              language: goal.language || "",
               startDate: goal.createdAt || "",
               isActive: Boolean(goal.isActive),
             }))
@@ -692,13 +715,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const created = await goalsAPI.create({
         name: goal.name,
         description: goal.description,
+        language: goal.language,
         makeActive: true,
-      }) as { id: number; name: string; description?: string | null; isActive?: boolean; createdAt?: string }
+      }) as { id: number; name: string; description?: string | null; language?: string | null; isActive?: boolean; createdAt?: string }
 
       const createdGoal: StudyGoal = {
         id: Number(created.id),
         name: created.name,
         description: created.description || "",
+        language: created.language || goal.language || "",
         startDate: created.createdAt || goal.startDate || "",
         isActive: true,
       }

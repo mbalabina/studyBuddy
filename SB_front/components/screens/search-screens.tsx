@@ -34,6 +34,16 @@ function getContactLabel(contact: string | null | undefined): "Telegram" | "VK" 
   return "Telegram"
 }
 
+function formatGoalTitle(goal: { name: string; language?: string }) {
+  const name = goal.name?.trim() || ""
+  const language = goal.language?.trim() || ""
+  if (!name) return ""
+  if (name.toLowerCase() === "изучение языка" && language) {
+    return `${name} · ${language}`
+  }
+  return name
+}
+
 
 export default function SearchIntroScreen() {
   const {
@@ -47,7 +57,22 @@ export default function SearchIntroScreen() {
   } = useApp()
   const [showModal, setShowModal] = useState(false)
   const [newGoalName, setNewGoalName] = useState("")
+  const [newGoalLanguage, setNewGoalLanguage] = useState("")
   const [newGoalDesc, setNewGoalDesc] = useState("")
+  const languageGoalName = "Изучение языка"
+  const normalizedLanguageGoalName = languageGoalName.toLowerCase()
+  const languageOptions = [
+    "Английский",
+    "Немецкий",
+    "Французский",
+    "Испанский",
+    "Итальянский",
+    "Китайский",
+    "Японский",
+    "Корейский",
+    "Арабский",
+    "Русский",
+  ]
 
   useEffect(() => {
     if (state.isLoggedIn) {
@@ -59,12 +84,16 @@ export default function SearchIntroScreen() {
 
   const handleAddGoal = async () => {
     if (!newGoalName.trim()) return
+    const normalizedGoalName = newGoalName.trim().toLowerCase()
+    if (normalizedGoalName === normalizedLanguageGoalName && !newGoalLanguage.trim()) return
     await addStudyGoal({
       name: newGoalName.trim(),
+      language: normalizedGoalName === normalizedLanguageGoalName ? newGoalLanguage.trim() : "",
       description: newGoalDesc.trim(),
       startDate: new Date().toISOString(),
     })
     setNewGoalName("")
+    setNewGoalLanguage("")
     setNewGoalDesc("")
     setShowModal(false)
   }
@@ -101,7 +130,7 @@ export default function SearchIntroScreen() {
                 : "border-black text-black"
             }`}
           >
-            {goal.name}
+            {formatGoalTitle(goal)}
           </button>
         ))}
 
@@ -169,11 +198,32 @@ export default function SearchIntroScreen() {
               <input
                 type="text"
                 value={newGoalName}
-                onChange={(e) => setNewGoalName(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setNewGoalName(value)
+                  if (value.trim().toLowerCase() !== normalizedLanguageGoalName) {
+                    setNewGoalLanguage("")
+                  }
+                }}
                 placeholder="Например: IELTS, ЕГЭ математика..."
                 className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-black"
               />
             </div>
+            {newGoalName.trim().toLowerCase() === normalizedLanguageGoalName && (
+              <div>
+                <label className="text-sm text-gray-500 mb-1 block">Язык</label>
+                <select
+                  value={newGoalLanguage}
+                  onChange={(e) => setNewGoalLanguage(e.target.value)}
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-black bg-white"
+                >
+                  <option value="">Выбери язык</option>
+                  {languageOptions.map((language) => (
+                    <option key={language} value={language}>{language}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="text-sm text-gray-500 mb-1 block">Описание (необязательно)</label>
@@ -189,7 +239,7 @@ export default function SearchIntroScreen() {
             <button
               className="btn-green"
               onClick={() => void handleAddGoal()}
-              disabled={!newGoalName.trim()}
+              disabled={!newGoalName.trim() || (newGoalName.trim().toLowerCase() === normalizedLanguageGoalName && !newGoalLanguage.trim())}
             >
               Добавить
             </button>

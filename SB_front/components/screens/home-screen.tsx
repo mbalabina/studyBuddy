@@ -6,6 +6,16 @@ import Link from "next/link"
 import { Plus, LogOut } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
 
+function formatGoalTitle(goal: { name: string; language?: string }) {
+  const name = goal.name?.trim() || ""
+  const language = goal.language?.trim() || ""
+  if (!name) return ""
+  if (name.toLowerCase() === "изучение языка" && language) {
+    return `${name} · ${language}`
+  }
+  return name
+}
+
 export default function HomeScreen() {
   const { state, setScreen, setActiveGoal, logout } = useApp()
   const user = state.user
@@ -68,7 +78,7 @@ export default function HomeScreen() {
           <div className="space-y-4">
             {goals.map((goal, goalIndex) => (
               <div key={goal.id} className="w-full bg-[var(--green-light)] rounded-2xl p-4">
-                <h3 className="text-xl font-bold mb-1">{goal.name}</h3>
+                <h3 className="text-xl font-bold mb-1">{formatGoalTitle(goal)}</h3>
                 {goal.description && (
                   <p className="text-sm text-gray-600 mb-3">{goal.description}</p>
                 )}

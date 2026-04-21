@@ -32,7 +32,7 @@ const empty: FormState = {
   avatarUrl: "",
 }
 
-const MAX_AVATAR_DATA_URL_LENGTH = 60_000
+const MAX_AVATAR_DATA_URL_LENGTH = 62_000
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -70,6 +70,20 @@ function renderResizedImageToDataUrl(
   return canvas.toDataURL(outputType)
 }
 
+function isLossyImageType(type: string): boolean {
+  return type === "image/jpeg" || type === "image/webp"
+}
+
+function getPreferredOutputTypes(fileType: string): string[] {
+  const normalized = fileType.toLowerCase()
+  if (normalized === "image/png") {
+    // PNG-аватары часто становятся слишком тяжелыми в base64.
+    // Сначала пробуем WebP (лучшее качество при том же размере).
+    return ["image/webp", "image/png", "image/jpeg"]
+  }
+  return ["image/webp", "image/jpeg"]
+}
+
 function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
   return new Promise(async (resolve, reject) => {
     const objectUrl = URL.createObjectURL(file)
@@ -99,8 +113,9 @@ function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
         throw new Error("empty_image")
       }
 
-      const targetType = file.type === "image/png" ? "image/png" : "image/jpeg"
-      const sizeSteps = [maxPx, 1440, 1280, 1120, 960, 840, 768]
+      const outputTypes = getPreferredOutputTypes(file.type)
+      const sizeSteps = [maxPx, 1536, 1408, 1280, 1152, 1080, 1024, 960, 896, 840, 768, 640, 512, 384]
+      const qualitySteps = [0.96, 0.92, 0.88, 0.84, 0.8, 0.76, 0.72, 0.68, 0.64, 0.6, 0.56]
       let bestOutput = original
 
       for (const step of sizeSteps) {
@@ -108,18 +123,23 @@ function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
         const nextWidth = Math.max(1, Math.round(width * scale))
         const nextHeight = Math.max(1, Math.round(height * scale))
 
-        const output = renderResizedImageToDataUrl(
-          img,
-          nextWidth,
-          nextHeight,
-          targetType,
-          targetType === "image/jpeg" ? 0.98 : undefined,
-        )
+        for (const type of outputTypes) {
+          const qualities = isLossyImageType(type) ? qualitySteps : [undefined]
+          for (const quality of qualities) {
+            const output = renderResizedImageToDataUrl(
+              img,
+              nextWidth,
+              nextHeight,
+              type,
+              quality,
+            )
 
-        bestOutput = output
-        if (output.length <= MAX_AVATAR_DATA_URL_LENGTH) {
-          resolve(output)
-          return
+            bestOutput = output
+            if (output.length <= MAX_AVATAR_DATA_URL_LENGTH) {
+              resolve(output)
+              return
+            }
+          }
         }
       }
 
