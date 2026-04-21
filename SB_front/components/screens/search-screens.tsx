@@ -1,10 +1,24 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState, type SyntheticEvent } from "react"
 import { useApp, type Candidate } from "@/lib/app-context"
 import { favoritesAPI } from "@/lib/api"
 import { ChevronLeft, Heart, X, MessageCircle, MapPin, GraduationCap } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
+
+const DEFAULT_AVATAR_SRC = "/mascot.png"
+
+function getAvatarSrc(avatar: string | null | undefined) {
+  const value = (avatar ?? "").trim()
+  return value || DEFAULT_AVATAR_SRC
+}
+
+function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
+  const image = event.currentTarget
+  if (image.dataset.fallbackApplied === "true") return
+  image.dataset.fallbackApplied = "true"
+  image.src = DEFAULT_AVATAR_SRC
+}
 
 
 export default function SearchIntroScreen() {
@@ -177,7 +191,7 @@ export default function SearchIntroScreen() {
 
 
 export function CandidateCardScreen() {
-  const { state, setScreen, likeCurrent, rejectCurrent } = useApp()
+  const { state, setScreen, likeCurrent, rejectCurrent, setState } = useApp()
 
   const candidate = state.candidates[state.currentCandidateIndex]
   const goals = state.user.studyGoals
@@ -254,7 +268,13 @@ export function CandidateCardScreen() {
       </div>
 
       <div className="flex-1 flex flex-col justify-center">
-        <CandidateCardView candidate={candidate} onOpen={() => setScreen("search-profile")} />
+        <CandidateCardView
+          candidate={candidate}
+          onOpen={() => {
+            setState((prev) => ({ ...prev, selectedCandidate: candidate }))
+            setScreen("search-profile")
+          }}
+        />
 
         <div className="flex items-center justify-center gap-6 mt-6 pb-8">
           <button
@@ -265,7 +285,14 @@ export function CandidateCardScreen() {
             <X className="w-7 h-7" />
           </button>
           <button
-            onClick={likeCurrent}
+            onClick={() => {
+              void (async () => {
+                const result = await likeCurrent()
+                if (result?.matched) {
+                  setScreen("match-success")
+                }
+              })()
+            }}
             className="w-16 h-16 rounded-full bg-black text-white flex items-center justify-center shadow-lg"
             aria-label="Like"
           >
@@ -278,9 +305,11 @@ export function CandidateCardScreen() {
 }
 
 export function CandidateDetailScreen() {
-  const { state, setScreen, likeCurrent } = useApp()
+  const { state, setScreen, likeCurrent, setState } = useApp()
 
-  const candidate = state.candidates[state.currentCandidateIndex]
+  const candidate = state.selectedCandidate ?? state.candidates[state.currentCandidateIndex]
+  const searchCandidate = state.candidates[state.currentCandidateIndex] ?? null
+  const isSearchCandidate = Boolean(searchCandidate && searchCandidate.id === candidate?.id)
 
   if (!candidate) {
     return (
@@ -313,8 +342,9 @@ export function CandidateDetailScreen() {
 
       <div className="px-6 pb-8">
         <img
-          src={candidate.avatar}
+          src={getAvatarSrc(candidate.avatar)}
           alt={candidate.name}
+          onError={handleAvatarError}
           className="w-full h-[320px] object-cover rounded-3xl"
         />
 
@@ -349,7 +379,7 @@ export function CandidateDetailScreen() {
             </div>
             <div className="rounded-2xl bg-gray-50 p-4">
               <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Контакт</p>
-              <p>{candidate.telegram || "Telegram не указан"}</p>
+              <p>Откроется только после взаимного мэтча</p>
             </div>
           </div>
         </div>
@@ -358,8 +388,49 @@ export function CandidateDetailScreen() {
           <button
             className="btn-green"
             onClick={() => {
-              likeCurrent()
-              setScreen("match-success")
+              void (async () => {
+                if (isSearchCandidate) {
+                  const result = await likeCurrent()
+                  setScreen(result?.matched ? "match-success" : "match-waiting")
+                  return
+                }
+
+                const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
+                const matched = Boolean(likeResult?.matched)
+
+                setState((prev) => ({
+                  ...prev,
+                  matchedCandidate: matched ? { ...candidate, isFavorite: true } : prev.matchedCandidate,
+                  selectedCandidate: { ...candidate, isFavorite: true },
+                  admirerCandidates: prev.admirerCandidates.map((item) =>
+                    item.id === candidate.id ? { ...item, isFavorite: true } : item,
+                  ),
+                  admirerCandidatesByGoal:
+                    typeof activeGoalId === "number"
+                      ? {
+                          ...prev.admirerCandidatesByGoal,
+                          [activeGoalId]: (prev.admirerCandidatesByGoal[activeGoalId] ?? prev.admirerCandidates).map((item) =>
+                            item.id === candidate.id ? { ...item, isFavorite: true } : item,
+                          ),
+                        }
+                      : prev.admirerCandidatesByGoal,
+                  favoriteCandidates: prev.favoriteCandidates.some((item) => item.id === candidate.id)
+                    ? prev.favoriteCandidates
+                    : [...prev.favoriteCandidates, { ...candidate, isFavorite: true }],
+                  favoriteCandidatesByGoal:
+                    typeof activeGoalId === "number"
+                      ? {
+                          ...prev.favoriteCandidatesByGoal,
+                          [activeGoalId]: (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates).some((item) => item.id === candidate.id)
+                            ? (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates)
+                            : [...(prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates), { ...candidate, isFavorite: true }],
+                        }
+                      : prev.favoriteCandidatesByGoal,
+                }))
+
+                setScreen(matched ? "match-success" : "match-waiting")
+              })()
             }}
           >
             Лайкнуть
@@ -483,7 +554,7 @@ export function LikesScreen() {
 
 
 export function LikesCandidatesScreen() {
-  const { state, setScreen } = useApp()
+  const { state, setScreen, setState } = useApp()
   const likedItems = state.favoriteCandidates
 
   const candidate = likedItems[state.currentFavoriteIndex] ?? likedItems[0] ?? null
@@ -515,15 +586,25 @@ export function LikesCandidatesScreen() {
         <div className="w-8" />
       </div>
       <div className="pt-4">
-        <CandidateCardView candidate={candidate} onOpen={() => setScreen("search-profile")} />
+        <CandidateCardView
+          candidate={candidate}
+          onOpen={() => {
+            setState((prev) => ({ ...prev, selectedCandidate: candidate }))
+            setScreen("search-profile")
+          }}
+        />
       </div>
     </div>
   )
 }
 
 export function AdmirersScreen() {
-  const { state, setScreen, setState } = useApp()
+  const { state, setScreen, setState, loadAdmirerCandidates } = useApp()
   const admirerItems = state.admirerCandidates
+
+  useEffect(() => {
+    loadAdmirerCandidates().catch(console.error)
+  }, [loadAdmirerCandidates])
 
   return (
     <div className="flex flex-col min-h-dvh animate-fade-in">
@@ -612,6 +693,7 @@ export function AdmirerCandidatesScreen() {
             setState((prev) => ({
               ...prev,
               currentAdmirerIndex: index >= 0 ? index : prev.currentAdmirerIndex,
+              selectedCandidate: candidate,
               currentAdmirerIndexByGoal:
                 typeof activeGoalId === "number"
                   ? { ...prev.currentAdmirerIndexByGoal, [activeGoalId]: index >= 0 ? index : prev.currentAdmirerIndex }
@@ -624,9 +706,11 @@ export function AdmirerCandidatesScreen() {
               ? undefined
               : async () => {
                   const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
-                  await favoritesAPI.like(candidate.id, activeGoalId)
+                  const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
+                  const matched = Boolean(likeResult?.matched)
                   setState((prev) => ({
                     ...prev,
+                    matchedCandidate: matched ? { ...candidate, isFavorite: true } : prev.matchedCandidate,
                     admirerCandidates: prev.admirerCandidates.map((item) =>
                       item.id === candidate.id ? { ...item, isFavorite: true } : item,
                     ),
@@ -652,6 +736,7 @@ export function AdmirerCandidatesScreen() {
                           }
                         : prev.favoriteCandidatesByGoal,
                   }))
+                  setScreen(matched ? "match-success" : "match-waiting")
                 }
           }
         />
@@ -674,8 +759,9 @@ function CandidateCardView({
   return (
     <div className="rounded-3xl overflow-hidden shadow-sm border border-gray-100 bg-white">
       <img
-        src={candidate.avatar}
+        src={getAvatarSrc(candidate.avatar)}
         alt={candidate.name}
+        onError={handleAvatarError}
         className="w-full h-[420px] object-cover"
       />
       <div className="p-5">
@@ -733,8 +819,9 @@ function MiniCandidateCard({
     >
       <div className="flex items-center gap-4">
         <img
-          src={candidate.avatar}
+          src={getAvatarSrc(candidate.avatar)}
           alt={candidate.name}
+          onError={handleAvatarError}
           className="w-16 h-16 rounded-2xl object-cover"
         />
         <div className="min-w-0 flex-1">

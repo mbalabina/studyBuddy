@@ -533,14 +533,11 @@ export async function getUserAdmirers(userId: number, goalId?: number): Promise<
     return [];
   }
 
+  void goalId;
   const admirerIds = await db
     .select()
     .from(favorites)
-    .where(
-      typeof goalId === "number"
-        ? and(eq(favorites.favoriteUserId, userId), eq(favorites.goalId, goalId))
-        : eq(favorites.favoriteUserId, userId),
-    );
+    .where(eq(favorites.favoriteUserId, userId));
   if (admirerIds.length === 0) return [];
 
   const uniqueIds = Array.from(new Set(admirerIds.map((item) => item.userId)));

@@ -98,6 +98,7 @@ interface AppState {
   currentCandidateIndex: number
   likedCandidates: number[]
   matchedCandidate: Candidate | null
+  selectedCandidate: Candidate | null
   candidates: Candidate[]
   favoriteCandidates: Candidate[]
   admirerCandidates: Candidate[]
@@ -123,12 +124,12 @@ interface AppContextType {
   updateUser: (updates: Partial<UserProfile>) => void
   addStudyGoal: (goal: Omit<StudyGoal, "id">) => Promise<void>
   setActiveGoal: (goalId: number) => Promise<void>
-  likeCurrent: () => void
+  likeCurrent: () => Promise<{ matched: boolean; candidate: Candidate } | null>
   rejectCurrent: () => void
   nextCandidate: () => void
   setState: React.Dispatch<React.SetStateAction<AppState>>
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, telegram?: string) => Promise<void>
+  register: (email: string, password: string, telegramUsername?: string) => Promise<void>
   logout: () => Promise<void>
   loadCandidates: (goalIdOverride?: number) => Promise<void>
   loadFavoriteCandidates: () => Promise<void>
@@ -206,6 +207,7 @@ function createAccountScopedDefaults() {
     currentCandidateIndex: 0,
     likedCandidates: [],
     matchedCandidate: null,
+    selectedCandidate: null,
     candidates: [],
     favoriteCandidates: [],
     admirerCandidates: [],
@@ -238,6 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentCandidateIndex: 0,
     likedCandidates: [],
     matchedCandidate: null,
+    selectedCandidate: null,
     candidates: [],
     favoriteCandidates: [],
     admirerCandidates: [],
@@ -676,10 +679,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ])
 
 
-  const likeCurrent = useCallback(() => {
+  const likeCurrent = useCallback(async (): Promise<{ matched: boolean; candidate: Candidate } | null> => {
     const current = stateRef.current
     const candidate = current.candidates[current.currentCandidateIndex]
-    if (!candidate) return
+    if (!candidate) return null
 
 
     const activeGoalId = current.user.studyGoals[current.currentGoalIndex]?.id
@@ -695,11 +698,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         likedCandidates: [...prev.likedCandidates, candidate.id],
         currentCandidateIndex: nextIndex,
         currentCandidateIndexByGoal: nextCandidateIndexByGoal,
+        favoriteCandidates: prev.favoriteCandidates.some((item) => item.id === candidate.id)
+          ? prev.favoriteCandidates
+          : [...prev.favoriteCandidates, { ...candidate, isFavorite: true }],
+        favoriteCandidatesByGoal:
+          typeof activeGoalId === "number"
+            ? {
+                ...prev.favoriteCandidatesByGoal,
+                [activeGoalId]: (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates).some(
+                  (item) => item.id === candidate.id,
+                )
+                  ? (prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates)
+                  : [...(prev.favoriteCandidatesByGoal[activeGoalId] ?? prev.favoriteCandidates), { ...candidate, isFavorite: true }],
+              }
+            : prev.favoriteCandidatesByGoal,
       }
     })
 
 
-    favoritesAPI.like(candidate.id, activeGoalId).catch(console.error)
+    try {
+      const result = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
+      const matched = Boolean(result?.matched)
+
+      if (matched) {
+        setState((prev) => ({
+          ...prev,
+          matchedCandidate: { ...candidate, isFavorite: true },
+        }))
+      }
+
+      return { matched, candidate }
+    } catch (error) {
+      console.error(error)
+      return { matched: false, candidate }
+    }
   }, [])
 
 

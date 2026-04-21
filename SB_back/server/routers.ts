@@ -766,7 +766,12 @@ export const appRouter = router({
         }
 
         const favorite = await db.addFavorite(ctx.user!.userId, input.candidateId, input.goalId);
-        return favorite;
+        const matched = await db.isFavorite(input.candidateId, ctx.user!.userId);
+
+        return {
+          favorite,
+          matched,
+        };
       }),
 
     unlike: protectedProcedure
@@ -867,6 +872,11 @@ export const appRouter = router({
         currentGoals.find((goal) => goal.id === selectedGoalId)?.name ??
         currentProfile?.studyGoal ??
         "";
+      const normalizedSelectedGoal = normalizeGoalValue(selectedGoalName);
+
+      if (!normalizedSelectedGoal) {
+        return [];
+      }
 
       const [admirerIds, allUsers, allProfiles] = await Promise.all([
         db.getUserAdmirers(currentUserId, selectedGoalId),
@@ -894,11 +904,22 @@ export const appRouter = router({
       const items = await Promise.all(
         allUsers
           .filter((u) => admireSet.has(u.id))
+          .filter((user) => {
+            const profile = profileMap.get(user.id) ?? null;
+            const candidateGoals = (goalMap.get(user.id) ?? [])
+              .filter((goal) => normalizeGoalValue(goal.name))
+              .map((goal) => normalizeGoalValue(goal.name));
+            if (candidateGoals.length === 0 && profile?.studyGoal) {
+              candidateGoals.push(normalizeGoalValue(profile.studyGoal));
+            }
+            if (candidateGoals.length === 0) return false;
+            return candidateGoals.includes(normalizedSelectedGoal);
+          })
           .map(async (user) => {
             const profile = profileMap.get(user.id) ?? null;
             const matchedGoal =
               (goalMap.get(user.id) ?? []).find(
-                (goal) => normalizeGoalValue(goal.name) === normalizeGoalValue(selectedGoalName),
+                (goal) => normalizeGoalValue(goal.name) === normalizedSelectedGoal,
               ) ?? null;
             const matchedGoalName = matchedGoal?.name ?? profile?.studyGoal ?? "";
             const matchedGoalDescription = matchedGoal?.description ?? profile?.bio ?? "";

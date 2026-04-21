@@ -17,8 +17,6 @@ interface FormState {
   program: string
   course: string
   messengerHandle: string
-  studyGoal: string
-  goalDescription: string
   avatarUrl: string
 }
 
@@ -31,8 +29,6 @@ const empty: FormState = {
   program: "",
   course: "",
   messengerHandle: "",
-  studyGoal: "",
-  goalDescription: "",
   avatarUrl: "",
 }
 
@@ -166,8 +162,6 @@ export default function ProfilePage() {
           program:         p.program         ?? "",
           course:          p.course          ?? "",
           messengerHandle: p.messengerHandle ?? u.telegramUsername ?? "",
-          studyGoal:       p.studyGoal       ?? "",
-          goalDescription: p.bio             ?? "",
           avatarUrl:       p.avatarUrl       ?? "",
         })
       })
@@ -223,8 +217,6 @@ export default function ProfilePage() {
         program:         form.program,
         course:          form.course,
         messengerHandle: form.messengerHandle,
-        studyGoal:       form.studyGoal,
-        bio:             form.goalDescription,
         avatarUrl:       form.avatarUrl,
       })
       await Promise.all([loadProfile(), loadCandidates()])
@@ -261,11 +253,17 @@ export default function ProfilePage() {
                     <img
                       src={form.avatarUrl}
                       alt="Фото профиля"
+                      onError={(event) => {
+                        const image = event.currentTarget
+                        if (image.dataset.fallbackApplied === "true") return
+                        image.dataset.fallbackApplied = "true"
+                        image.src = "/mascot.png"
+                      }}
                       className="w-full h-full object-cover"
                     />
                   ) : (
                     <Image
-                      src="/placeholder-user.jpg"
+                      src="/mascot.png"
                       alt="Фото профиля"
                       width={80}
                       height={80}
@@ -310,16 +308,6 @@ export default function ProfilePage() {
               <Field label="Telegram / ВКонтакте" value={form.messengerHandle} onChange={set("messengerHandle")} />
             </Section>
 
-            <Section title="Цель обучения">
-              <Field label="Название цели" value={form.studyGoal} onChange={set("studyGoal")} />
-              <TextAreaField
-                label="Описание цели"
-                value={form.goalDescription}
-                onChange={(e) => setForm((prev) => ({ ...prev, goalDescription: e.target.value }))}
-                rows={4}
-              />
-            </Section>
-
             {error && <p className="mx-6 mt-2 text-xs text-red-500">{error}</p>}
           </div>
 
@@ -335,30 +323,6 @@ export default function ProfilePage() {
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  rows = 3,
-}: {
-  label: string
-  value: string
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  rows?: number
-}) {
-  return (
-    <div className="py-1">
-      <p className="text-xs text-gray-400 mt-2">{label}</p>
-      <textarea
-        rows={rows}
-        value={value}
-        onChange={onChange}
-        className="w-full py-2 border-b border-gray-200 focus:border-black outline-none transition-colors text-sm font-medium bg-transparent resize-none"
-      />
     </div>
   )
 }
