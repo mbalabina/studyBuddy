@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   users,
@@ -6,8 +6,10 @@ import {
   preferences,
   userStudyGoals,
   favorites,
+  emailNotifications,
   type InsertProfile,
   type InsertPreference,
+  type InsertEmailNotification,
   type InsertUserStudyGoal,
   type User,
   type Profile,
@@ -17,6 +19,7 @@ import {
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const LAST_SEEN_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(
@@ -57,6 +60,7 @@ export async function createUser(
       email,
       passwordHash,
       telegramUsername: telegramUsername || null,
+      lastSeenAt: new Date(),
       role: "user",
       isProfileComplete: false,
     });
@@ -90,6 +94,40 @@ export async function getUserById(id: number): Promise<User | null> {
 
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result[0] ?? null;
+}
+
+export async function touchUserLastSeen(
+  userId: number,
+  options?: { force?: boolean; previousLastSeenAt?: Date | null },
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot update last seen: database not available");
+    return;
+  }
+
+  const now = new Date();
+  const isForced = options?.force === true;
+  const previousLastSeenAt = options?.previousLastSeenAt;
+
+  if (!isForced && previousLastSeenAt) {
+    const elapsed = now.getTime() - new Date(previousLastSeenAt).getTime();
+    if (elapsed < LAST_SEEN_UPDATE_INTERVAL_MS) {
+      return;
+    }
+  }
+
+  try {
+    await db
+      .update(users)
+      .set({
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .where(eq(users.id, userId));
+  } catch (error) {
+    console.error("[Database] Failed to update last seen:", error);
+  }
 }
 
 export async function upsertProfile(
@@ -524,6 +562,98 @@ export async function isFavorite(userId: number, favoriteUserId: number, goalId?
     .limit(1);
 
   return result.length > 0;
+}
+
+export async function hasAnyFavoriteActivity(userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot check favorite activity: database not available");
+    return false;
+  }
+
+  const [likedByMe, likedMe] = await Promise.all([
+    db.select({ id: favorites.id }).from(favorites).where(eq(favorites.userId, userId)).limit(1),
+    db.select({ id: favorites.id }).from(favorites).where(eq(favorites.favoriteUserId, userId)).limit(1),
+  ]);
+
+  return likedByMe.length > 0 || likedMe.length > 0;
+}
+
+export async function hasEmailNotificationByKey(notificationKey: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot check email notification key: database not available");
+    return false;
+  }
+
+  const rows = await db
+    .select({ id: emailNotifications.id })
+    .from(emailNotifications)
+    .where(eq(emailNotifications.notificationKey, notificationKey))
+    .limit(1);
+
+  return rows.length > 0;
+}
+
+export async function hasRecentEmailNotification(
+  userId: number,
+  notificationType: string,
+  withinMs: number,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot check recent email notifications: database not available");
+    return false;
+  }
+
+  const threshold = new Date(Date.now() - withinMs);
+  const rows = await db
+    .select({ id: emailNotifications.id })
+    .from(emailNotifications)
+    .where(
+      and(
+        eq(emailNotifications.userId, userId),
+        eq(emailNotifications.notificationType, notificationType),
+        gt(emailNotifications.sentAt, threshold),
+      ),
+    )
+    .limit(1);
+
+  return rows.length > 0;
+}
+
+export async function createEmailNotification(
+  userId: number,
+  notificationType: string,
+  notificationKey: string,
+  payload?: Record<string, unknown> | null,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot create email notification record: database not available");
+    return false;
+  }
+
+  try {
+    const insertPayload: InsertEmailNotification = {
+      userId,
+      notificationType,
+      notificationKey,
+      payload: payload ?? null,
+    };
+    await db.insert(emailNotifications).values(insertPayload);
+    return true;
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    if (code === "ER_DUP_ENTRY") {
+      return false;
+    }
+    console.error("[Database] Failed to create email notification record:", error);
+    return false;
+  }
 }
 
 export async function getUserAdmirers(userId: number, goalId?: number): Promise<User[]> {

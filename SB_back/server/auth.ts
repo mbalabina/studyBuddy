@@ -17,6 +17,7 @@ export type SafeUser = {
   id: number;
   email: string;
   telegramUsername: string | null;
+  lastSeenAt: Date | null;
   role: "user" | "admin";
   isProfileComplete: boolean;
   createdAt: Date;
@@ -30,6 +31,7 @@ export function toSafeUser(user: Awaited<ReturnType<typeof db.getUserById>>): Sa
     id: user.id,
     email: user.email,
     telegramUsername: user.telegramUsername ?? null,
+    lastSeenAt: user.lastSeenAt ?? null,
     role: user.role,
     isProfileComplete: user.isProfileComplete,
     createdAt: user.createdAt,
@@ -141,6 +143,8 @@ export async function authenticateRequest(
 
   const user = await db.getUserById(payload.userId);
   if (!user) return null;
+
+  void db.touchUserLastSeen(user.id, { previousLastSeenAt: user.lastSeenAt ?? null });
 
   return { userId: user.id, email: user.email };
 }

@@ -5,6 +5,7 @@ import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import * as auth from "./auth";
 import * as db from "./db";
 import { compareGoals } from "./groq";
+import { notifyUsersAboutMatch } from "./email-notifications";
 
 type JsonArrayValue = string[] | null | undefined;
 
@@ -493,6 +494,7 @@ export const appRouter = router({
           });
         }
 
+        await db.touchUserLastSeen(user.id, { force: true });
         await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user) };
       }),
@@ -515,6 +517,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid password" });
         }
 
+        await db.touchUserLastSeen(user.id, { force: true });
         await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user) };
       }),
@@ -850,6 +853,13 @@ export const appRouter = router({
 
         const favorite = await db.addFavorite(ctx.user!.userId, input.candidateId, input.goalId);
         const matched = await db.isFavorite(input.candidateId, ctx.user!.userId);
+
+        if (matched) {
+          await notifyUsersAboutMatch({
+            userId: ctx.user!.userId,
+            candidateId: input.candidateId,
+          });
+        }
 
         return {
           favorite,

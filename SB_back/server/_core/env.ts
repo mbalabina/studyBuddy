@@ -5,6 +5,12 @@ export const ENV = {
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
+  frontendUrl: process.env.FRONTEND_URL ?? "",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  resendApiKey: process.env.RESEND_API_KEY ?? "",
+  emailFrom: process.env.EMAIL_FROM ?? "",
+  emailNotificationsEnabled: process.env.EMAIL_NOTIFICATIONS_ENABLED ?? "true",
+  inactivityReminderDays: process.env.INACTIVITY_REMINDER_DAYS ?? "7",
+  inactivityJobIntervalMinutes: process.env.INACTIVITY_JOB_INTERVAL_MINUTES ?? "360",
 };

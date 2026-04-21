@@ -6,6 +6,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).notNull().unique(),
   passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
   telegramUsername: varchar("telegramUsername", { length: 255 }),
+  lastSeenAt: timestamp("lastSeenAt"),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   isProfileComplete: boolean("isProfileComplete").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -91,11 +92,25 @@ export const favorites = mysqlTable("favorites", {
 export type Favorite = typeof favorites.$inferSelect;
 export type InsertFavorite = typeof favorites.$inferInsert;
 
+export const emailNotifications = mysqlTable("emailNotifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  notificationType: varchar("notificationType", { length: 64 }).notNull(),
+  notificationKey: varchar("notificationKey", { length: 255 }).notNull().unique(),
+  payload: json("payload").$type<Record<string, unknown> | null>(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EmailNotification = typeof emailNotifications.$inferSelect;
+export type InsertEmailNotification = typeof emailNotifications.$inferInsert;
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles, { fields: [users.id], references: [profiles.userId] }),
   preferences: one(preferences, { fields: [users.id], references: [preferences.userId] }),
   studyGoals: many(userStudyGoals),
   favorites: many(favorites),
+  emailNotifications: many(emailNotifications),
 }));
 
 export const profilesRelations = relations(profiles, ({ one }) => ({
@@ -114,4 +129,8 @@ export const favoritesRelations = relations(favorites, ({ one }) => ({
   user: one(users, { fields: [favorites.userId], references: [users.id] }),
   favoriteUser: one(users, { fields: [favorites.favoriteUserId], references: [users.id] }),
   goal: one(userStudyGoals, { fields: [favorites.goalId], references: [userStudyGoals.id] }),
+}));
+
+export const emailNotificationsRelations = relations(emailNotifications, ({ one }) => ({
+  user: one(users, { fields: [emailNotifications.userId], references: [users.id] }),
 }));
