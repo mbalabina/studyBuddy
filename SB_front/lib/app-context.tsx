@@ -132,7 +132,7 @@ interface AppContextType {
   register: (email: string, password: string, telegramUsername?: string) => Promise<void>
   logout: () => Promise<void>
   loadCandidates: (goalIdOverride?: number) => Promise<void>
-  loadFavoriteCandidates: () => Promise<void>
+  loadFavoriteCandidates: (options?: { allGoals?: boolean }) => Promise<void>
   loadAdmirerCandidates: () => Promise<void>
   loadProfile: () => Promise<void>
   saveProfile: (overrides?: Partial<UserProfile>) => Promise<void>
@@ -384,9 +384,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setStateForSession])
 
-  const loadFavoriteCandidates = useCallback(() => {
+  const loadAllFavoriteCandidatesForSession = useCallback(async (sessionVersion: number) => {
+    const goals = stateRef.current.user.studyGoals.filter((goal) => typeof goal.id === "number")
+
+    try {
+      const scopedLists = goals.length > 0
+        ? await Promise.all(
+            goals.map(async (goal) => {
+              const data = await favoritesAPI.getMyFavorites(goal.id)
+              const list: Candidate[] = Array.isArray(data) ? data : []
+              return { goalId: goal.id, list }
+            }),
+          )
+        : []
+
+      const fallbackData = goals.length === 0 ? await favoritesAPI.getMyFavorites() : []
+      const fallbackList: Candidate[] = Array.isArray(fallbackData) ? fallbackData : []
+
+      const merged = goals.length > 0
+        ? scopedLists.flatMap((item) => item.list)
+        : fallbackList
+
+      const seen = new Set<string>()
+      const deduplicated: Candidate[] = []
+      for (const candidate of merged) {
+        const key = `${candidate.id}:${normalizeGoalValue(candidate.goal)}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        deduplicated.push(candidate)
+      }
+
+      setStateForSession(sessionVersion, (prev) => {
+        const nextByGoal = { ...prev.favoriteCandidatesByGoal }
+        for (const item of scopedLists) {
+          nextByGoal[item.goalId] = item.list
+        }
+
+        return {
+          ...prev,
+          favoriteCandidates: deduplicated,
+          currentFavoriteIndex:
+            deduplicated.length === 0
+              ? 0
+              : Math.min(prev.currentFavoriteIndex, deduplicated.length - 1),
+          favoriteCandidatesByGoal: nextByGoal,
+        }
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Ошибка загрузки моих лайков"
+
+      setStateForSession(sessionVersion, (prev) => ({
+        ...prev,
+        favoriteCandidates: [],
+        currentFavoriteIndex: 0,
+        apiError: msg,
+      }))
+    }
+  }, [setStateForSession])
+
+  const loadFavoriteCandidates = useCallback((options?: { allGoals?: boolean }) => {
+    if (options?.allGoals) {
+      return loadAllFavoriteCandidatesForSession(sessionVersionRef.current)
+    }
+
     return loadFavoriteCandidatesForSession(sessionVersionRef.current)
-  }, [loadFavoriteCandidatesForSession])
+  }, [loadAllFavoriteCandidatesForSession, loadFavoriteCandidatesForSession])
 
   const loadAdmirerCandidatesForSession = useCallback(async (sessionVersion: number, goalIdOverride?: number) => {
     const { goal, goalIndex } = resolveGoalSelection(stateRef.current, goalIdOverride)

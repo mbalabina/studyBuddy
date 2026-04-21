@@ -500,8 +500,12 @@ export function MatchSuccessScreen() {
 }
 
 export function LikesScreen() {
-  const { state, setScreen, setState } = useApp()
+  const { state, setScreen, setState, loadFavoriteCandidates } = useApp()
   const likedItems = state.favoriteCandidates
+
+  useEffect(() => {
+    loadFavoriteCandidates({ allGoals: true }).catch(console.error)
+  }, [loadFavoriteCandidates])
 
   return (
     <div className="flex flex-col min-h-dvh animate-fade-in">
