@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 // (убираем импорт AppProvider — он уже в layout.tsx)
 import SplashScreen from "@/components/screens/splash-screen"
@@ -18,9 +19,16 @@ import SearchIntroScreen, {
   AdmirersScreen,
   AdmirerCandidatesScreen,
 } from "@/components/screens/search-screens"
+import { yandexMetrikaHit } from "@/lib/yandex-metrika"
 
 function AppContent() {
   const { state } = useApp()
+
+  useEffect(() => {
+    yandexMetrikaHit(`/app/${state.screen}`, {
+      title: `Study Buddy · ${state.screen}`,
+    })
+  }, [state.screen])
 
   switch (state.screen) {
     case "splash":
