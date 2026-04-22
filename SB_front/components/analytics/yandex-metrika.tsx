@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import Script from "next/script"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname } from "next/navigation"
 import {
   getYandexMetrikaCounterId,
   isYandexMetrikaEnabled,
@@ -11,8 +11,6 @@ import {
 
 export default function YandexMetrika() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const search = searchParams?.toString() ?? ""
   const isFirstRenderRef = useRef(true)
 
   useEffect(() => {
@@ -21,9 +19,9 @@ export default function YandexMetrika() {
       return
     }
 
-    const url = search ? `${pathname}?${search}` : pathname
+    const url = pathname
     yandexMetrikaHit(url || "/")
-  }, [pathname, search])
+  }, [pathname])
 
   if (!isYandexMetrikaEnabled()) {
     return null
