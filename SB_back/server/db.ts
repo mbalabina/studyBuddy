@@ -165,6 +165,77 @@ export async function getUserById(id: number): Promise<User | null> {
   return result[0] ?? null;
 }
 
+export async function setPasswordResetCode(
+  userId: number,
+  codeHash: string,
+  expiresAt: Date,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot set password reset code: database not available");
+    return;
+  }
+
+  try {
+    await db
+      .update(users)
+      .set({
+        passwordResetCodeHash: codeHash,
+        passwordResetCodeExpiresAt: expiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+  } catch (error) {
+    console.error("[Database] Failed to set password reset code:", error);
+    throw error;
+  }
+}
+
+export async function clearPasswordResetCode(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot clear password reset code: database not available");
+    return;
+  }
+
+  try {
+    await db
+      .update(users)
+      .set({
+        passwordResetCodeHash: null,
+        passwordResetCodeExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+  } catch (error) {
+    console.error("[Database] Failed to clear password reset code:", error);
+    throw error;
+  }
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot update password: database not available");
+    return;
+  }
+
+  try {
+    await db
+      .update(users)
+      .set({
+        passwordHash,
+        passwordResetCodeHash: null,
+        passwordResetCodeExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+  } catch (error) {
+    console.error("[Database] Failed to update password:", error);
+    throw error;
+  }
+}
+
 export async function touchUserLastSeen(userId: number): Promise<void> {
   const db = await getDb();
   if (!db) {

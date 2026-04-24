@@ -60,6 +60,10 @@ export const authAPI = {
     callTRPC({ method: "mutation", procedure: "auth.register", input: { email, password, telegramUsername } }),
   login: (email: string, password: string) =>
     callTRPC({ method: "mutation", procedure: "auth.login", input: { email, password } }),
+  requestPasswordReset: (email: string) =>
+    callTRPC({ method: "mutation", procedure: "auth.requestPasswordReset", input: { email } }),
+  resetPasswordWithCode: (email: string, code: string, newPassword: string) =>
+    callTRPC({ method: "mutation", procedure: "auth.resetPasswordWithCode", input: { email, code, newPassword } }),
   logout: () =>
     callTRPC({ method: "mutation", procedure: "auth.logout" }),
   getMe: () =>

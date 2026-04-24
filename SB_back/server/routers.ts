@@ -1,14 +1,17 @@
 import { TRPCError } from "@trpc/server";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import * as auth from "./auth";
 import * as db from "./db";
 import { compareGoals } from "./groq";
-import { notifyUsersAboutMatch } from "./email-notifications";
+import { notifyUsersAboutMatch, sendPasswordResetCodeEmail } from "./email-notifications";
 
 type JsonArrayValue = string[] | null | undefined;
 const LANGUAGE_STUDY_GOAL = "изучение языка";
+const PASSWORD_RESET_CODE_TTL_MINUTES = 15;
+const PASSWORD_RESET_CODE_PATTERN = /^\d{6}$/;
 
 function normalizeStringArray(value: JsonArrayValue): string[] {
   if (!value) return [];
@@ -32,6 +35,29 @@ function normalizeGoalValue(value: string | null | undefined): string {
 
 function normalizeGoalLanguage(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+function generatePasswordResetCode(): string {
+  return String(randomInt(100000, 1_000_000));
+}
+
+function hashPasswordResetCode(userId: number, code: string): string {
+  return createHash("sha256")
+    .update(`${userId}:${code.trim()}`)
+    .digest("hex");
+}
+
+function isHashMatch(leftHex: string, rightHex: string): boolean {
+  try {
+    const left = Buffer.from(leftHex, "hex");
+    const right = Buffer.from(rightHex, "hex");
+    if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+      return false;
+    }
+    return timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
 }
 
 function isLanguageStudyGoal(goalName: string | null | undefined): boolean {
@@ -585,6 +611,84 @@ export const appRouter = router({
         await db.touchUserLastSeen(user.id);
         await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user) };
+      }),
+
+    requestPasswordReset: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const user = await db.getUserByEmail(input.email.trim().toLowerCase());
+        if (!user) {
+          return { success: true };
+        }
+
+        const code = generatePasswordResetCode();
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_CODE_TTL_MINUTES * 60 * 1000);
+        const codeHash = hashPasswordResetCode(user.id, code);
+
+        await db.setPasswordResetCode(user.id, codeHash, expiresAt);
+
+        const sent = await sendPasswordResetCodeEmail({
+          to: user.email,
+          code,
+          ttlMinutes: PASSWORD_RESET_CODE_TTL_MINUTES,
+        });
+
+        if (!sent) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Не удалось отправить код восстановления. Попробуйте позже.",
+          });
+        }
+
+        return { success: true };
+      }),
+
+    resetPasswordWithCode: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          code: z.string().trim().regex(PASSWORD_RESET_CODE_PATTERN),
+          newPassword: z.string().min(6),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const user = await db.getUserByEmail(input.email.trim().toLowerCase());
+        const invalidCodeError = new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Неверный код или срок его действия истек",
+        });
+
+        if (!user) {
+          throw invalidCodeError;
+        }
+
+        if (!user.passwordResetCodeHash || !user.passwordResetCodeExpiresAt) {
+          throw invalidCodeError;
+        }
+
+        const expiresAt = new Date(user.passwordResetCodeExpiresAt).getTime();
+        if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+          await db.clearPasswordResetCode(user.id);
+          throw invalidCodeError;
+        }
+
+        const expectedHash = hashPasswordResetCode(user.id, input.code);
+        const isValidCode = isHashMatch(expectedHash, user.passwordResetCodeHash);
+        if (!isValidCode) {
+          throw invalidCodeError;
+        }
+
+        const newPasswordHash = await auth.hashPassword(input.newPassword);
+        await db.updateUserPassword(user.id, newPasswordHash);
+        await db.touchUserLastSeen(user.id);
+        await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
+
+        const freshUser = await db.getUserById(user.id);
+        return { success: true, user: auth.toSafeUser(freshUser ?? user) };
       }),
 
     logout: protectedProcedure.mutation(({ ctx }) => {

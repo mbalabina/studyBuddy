@@ -86,6 +86,36 @@ function shouldRunEmailNotifications(): boolean {
   return parseBoolean(ENV.emailNotificationsEnabled) && isEmailDeliveryConfigured();
 }
 
+export async function sendPasswordResetCodeEmail(params: {
+  to: string;
+  code: string;
+  ttlMinutes: number;
+}): Promise<boolean> {
+  const { to, code, ttlMinutes } = params;
+  const url = getAppUrl();
+  const subject = "Код для восстановления пароля StudyBuddy";
+  const text =
+    `Вы запросили восстановление пароля в StudyBuddy.\n` +
+    `Код: ${code}\n` +
+    `Срок действия кода: ${ttlMinutes} минут.\n` +
+    `Если это были не вы, просто проигнорируйте письмо.\n` +
+    `${url}`;
+  const html = `
+    <p>Вы запросили восстановление пароля в StudyBuddy.</p>
+    <p><strong>Код: ${code}</strong></p>
+    <p>Код действует ${ttlMinutes} минут.</p>
+    <p>Если это были не вы, просто проигнорируйте письмо.</p>
+    <p><a href="${url}">Открыть StudyBuddy</a></p>
+  `;
+
+  return sendEmail({
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+
 export async function notifyUsersAboutMatch(params: {
   userId: number;
   candidateId: number;

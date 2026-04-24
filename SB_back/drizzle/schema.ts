@@ -5,6 +5,8 @@ export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   email: varchar("email", { length: 320 }).notNull().unique(),
   passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  passwordResetCodeHash: varchar("passwordResetCodeHash", { length: 128 }),
+  passwordResetCodeExpiresAt: timestamp("passwordResetCodeExpiresAt"),
   telegramUsername: varchar("telegramUsername", { length: 255 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   isProfileComplete: boolean("isProfileComplete").default(false).notNull(),

@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ChangeEvent } from "react"
 import { useApp } from "@/lib/app-context"
-import { profileAPI } from "@/lib/api"
+import { authAPI, profileAPI } from "@/lib/api"
 import { ChevronLeft, Camera } from "lucide-react"
 
 const MAX_AVATAR_DATA_URL_LENGTH = 62_000
@@ -134,11 +134,18 @@ export default function AuthScreen() {
   const { login, register, setScreen } = useApp()
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [isRegister, setIsRegister] = useState(false)
+  const [recoveryStep, setRecoveryStep] = useState<"none" | "request" | "confirm">("none")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [resetCode, setResetCode] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [avatarUrl, setAvatarUrl] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [info, setInfo] = useState("")
+
+  const isRecoveryMode = recoveryStep !== "none"
 
   const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -172,14 +179,122 @@ export default function AuthScreen() {
     input.click()
   }
 
+  const resetRecoveryState = () => {
+    setRecoveryStep("none")
+    setResetCode("")
+    setNewPassword("")
+    setConfirmPassword("")
+    setInfo("")
+  }
+
+  const openRecoveryFlow = () => {
+    setIsRegister(false)
+    setRecoveryStep("request")
+    setPassword("")
+    setError("")
+    setInfo("")
+    setResetCode("")
+    setNewPassword("")
+    setConfirmPassword("")
+  }
+
+  const handleBack = () => {
+    if (isRegister) {
+      setIsRegister(false)
+      setAvatarUrl("")
+      setError("")
+      setInfo("")
+      return
+    }
+
+    if (recoveryStep === "confirm") {
+      setRecoveryStep("request")
+      setResetCode("")
+      setNewPassword("")
+      setConfirmPassword("")
+      setError("")
+      setInfo("")
+      return
+    }
+
+    if (recoveryStep === "request") {
+      resetRecoveryState()
+      setError("")
+    }
+  }
+
   const handleSubmit = async () => {
-    if (!email.trim() || !password.trim()) return
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError("Введите email")
+      return
+    }
+
+    if (!isRegister && recoveryStep === "request") {
+      setIsLoading(true)
+      setError("")
+      setInfo("")
+
+      try {
+        await authAPI.requestPasswordReset(normalizedEmail)
+        setRecoveryStep("confirm")
+        setInfo("Код отправлен на почту. Введите его и придумайте новый пароль.")
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Ошибка"
+        setError(msg.includes("Не удалось отправить код") ? msg : "Не удалось отправить код. Попробуйте позже.")
+      } finally {
+        setIsLoading(false)
+      }
+
+      return
+    }
+
+    if (!isRegister && recoveryStep === "confirm") {
+      const code = resetCode.trim()
+      if (!/^\d{6}$/.test(code)) {
+        setError("Введите 6-значный код из письма")
+        return
+      }
+      if (newPassword.length < 6) {
+        setError("Новый пароль должен быть минимум 6 символов")
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        setError("Пароли не совпадают")
+        return
+      }
+
+      setIsLoading(true)
+      setError("")
+      setInfo("")
+
+      try {
+        await authAPI.resetPasswordWithCode(normalizedEmail, code, newPassword)
+        await login(normalizedEmail, newPassword)
+        setScreen("main")
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Ошибка"
+        if (msg.includes("Неверный код") || msg.includes("истек")) {
+          setError("Неверный код или срок его действия истек")
+        } else {
+          setError(msg)
+        }
+      } finally {
+        setIsLoading(false)
+      }
+
+      return
+    }
+
+    if (!password.trim()) return
+
     setIsLoading(true)
     setError("")
+    setInfo("")
 
     try {
       if (isRegister) {
-        await register(email.trim(), password)
+        await register(normalizedEmail, password)
         if (avatarUrl) {
           try {
             await profileAPI.updateAboutMe({ avatarUrl })
@@ -190,7 +305,7 @@ export default function AuthScreen() {
         // После регистрации идём заполнять профиль
         setScreen("about-step1")
       } else {
-        await login(email.trim(), password)
+        await login(normalizedEmail, password)
         setScreen("main")
       }
     } catch (e: unknown) {
@@ -207,23 +322,51 @@ export default function AuthScreen() {
     }
   }
 
+  const title = isRegister
+    ? "Регистрация"
+    : recoveryStep === "request"
+      ? "Восстановление пароля"
+      : recoveryStep === "confirm"
+        ? "Введите код"
+        : "Вход"
+
+  const subtitle = isRegister
+    ? "Создайте аккаунт Study Buddy"
+    : recoveryStep === "request"
+      ? "Отправим код подтверждения на вашу почту"
+      : recoveryStep === "confirm"
+        ? "Введите код из письма и задайте новый пароль"
+        : "Войдите в свой аккаунт"
+
+  const primaryButtonLabel = isLoading
+    ? "Загрузка..."
+    : isRegister
+      ? "Зарегистрироваться"
+      : recoveryStep === "request"
+        ? "Отправить код"
+        : recoveryStep === "confirm"
+          ? "Сохранить новый пароль"
+          : "Войти"
+
+  const isPrimaryDisabled = isLoading || !email.trim() || (
+    !isRegister && recoveryStep === "confirm"
+      ? !resetCode.trim() || !newPassword || !confirmPassword
+      : !isRecoveryMode && !password.trim()
+  )
+
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
       <div className="flex items-center h-14 mt-2">
-        {isRegister && (
-          <button onClick={() => { setIsRegister(false); setAvatarUrl(""); setError("") }} className="p-1">
+        {(isRegister || isRecoveryMode) && (
+          <button onClick={handleBack} className="p-1">
             <ChevronLeft className="w-6 h-6" />
           </button>
         )}
       </div>
 
       <div className="flex-1 flex flex-col">
-        <h1 className="text-xl font-bold text-center mb-2">
-          {isRegister ? "Регистрация" : "Вход"}
-        </h1>
-        <p className="text-sm text-gray-400 text-center mb-8">
-          {isRegister ? "Создайте аккаунт Study Buddy" : "Войдите в свой аккаунт"}
-        </p>
+        <h1 className="text-xl font-bold text-center mb-2">{title}</h1>
+        <p className="text-sm text-gray-400 text-center mb-8">{subtitle}</p>
 
         <div className="space-y-4">
           <div>
@@ -237,18 +380,57 @@ export default function AuthScreen() {
             />
           </div>
 
-          <div>
-            <label className="text-sm font-medium mb-1 block">Пароль</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Минимум 6 символов"
-              className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
-            />
-          </div>
+          {!isRecoveryMode && (
+            <div>
+              <label className="text-sm font-medium mb-1 block">Пароль</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Минимум 6 символов"
+                className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+              />
+            </div>
+          )}
 
-          {isRegister && (
+          {recoveryStep === "confirm" && (
+            <>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Код из письма</label>
+                <input
+                  type="text"
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="6 цифр"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Новый пароль</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Минимум 6 символов"
+                  className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Повторите пароль</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Повторите новый пароль"
+                  className="w-full py-3 px-4 border-2 border-gray-200 rounded-xl focus:border-black outline-none transition-colors bg-transparent"
+                />
+              </div>
+            </>
+          )}
+
+          {isRegister && !isRecoveryMode && (
             <div>
               <label className="text-sm font-medium mb-2 block">
                 Фото профиля <span className="text-gray-400 font-normal">(необязательно)</span>
@@ -298,23 +480,69 @@ export default function AuthScreen() {
           <p className="text-red-500 text-sm text-center mt-4 animate-fade-in">{error}</p>
         )}
 
+        {info && (
+          <p className="text-green-600 text-sm text-center mt-4 animate-fade-in">{info}</p>
+        )}
+
         <div className="mt-auto pb-8 space-y-3">
           <button
             className="btn-green"
             onClick={handleSubmit}
-            disabled={isLoading || !email.trim() || !password.trim()}
+            disabled={isPrimaryDisabled}
           >
-            {isLoading ? "Загрузка..." : isRegister ? "Зарегистрироваться" : "Войти"}
+            {primaryButtonLabel}
           </button>
 
-          <button
-            className="w-full text-sm text-gray-500 underline text-center"
-            onClick={() => { setIsRegister(!isRegister); setAvatarUrl(""); setError("") }}
-          >
-            {isRegister
-              ? "Уже есть аккаунт? Войти"
-              : "Нет аккаунта? Зарегистрироваться"}
-          </button>
+          {!isRecoveryMode && !isRegister && (
+            <button
+              className="w-full text-sm text-gray-500 underline text-center"
+              onClick={openRecoveryFlow}
+            >
+              Забыли пароль?
+            </button>
+          )}
+
+          {!isRecoveryMode && (
+            <button
+              className="w-full text-sm text-gray-500 underline text-center"
+              onClick={() => {
+                setIsRegister(!isRegister)
+                resetRecoveryState()
+                setAvatarUrl("")
+                setError("")
+                setInfo("")
+              }}
+            >
+              {isRegister
+                ? "Уже есть аккаунт? Войти"
+                : "Нет аккаунта? Зарегистрироваться"}
+            </button>
+          )}
+
+          {isRecoveryMode && (
+            <button
+              className="w-full text-sm text-gray-500 underline text-center"
+              onClick={() => {
+                resetRecoveryState()
+                setError("")
+              }}
+            >
+              Вернуться ко входу
+            </button>
+          )}
+
+          {recoveryStep === "confirm" && (
+            <button
+              className="w-full text-sm text-gray-500 underline text-center"
+              onClick={() => {
+                setRecoveryStep("request")
+                setInfo("")
+                setError("")
+              }}
+            >
+              Отправить код заново
+            </button>
+          )}
         </div>
       </div>
     </div>
