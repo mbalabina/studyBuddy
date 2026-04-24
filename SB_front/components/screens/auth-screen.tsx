@@ -241,7 +241,13 @@ export default function AuthScreen() {
         setInfo("Код отправлен на почту. Введите его и придумайте новый пароль.")
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Ошибка"
-        setError(msg.includes("Не удалось отправить код") ? msg : "Не удалось отправить код. Попробуйте позже.")
+        if (msg.includes("User not found")) {
+          setError("Аккаунт с таким email не найден")
+        } else if (msg.includes("Не удалось отправить код")) {
+          setError(msg)
+        } else {
+          setError("Не удалось отправить код. Попробуйте позже.")
+        }
       } finally {
         setIsLoading(false)
       }

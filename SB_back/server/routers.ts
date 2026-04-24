@@ -622,7 +622,7 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const user = await db.getUserByEmail(input.email.trim().toLowerCase());
         if (!user) {
-          return { success: true };
+          throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
         }
 
         const code = generatePasswordResetCode();
