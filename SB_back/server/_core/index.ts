@@ -43,7 +43,8 @@ async function startServer() {
 
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type");
+    const requestedHeaders = req.header("Access-Control-Request-Headers");
+    res.header("Access-Control-Allow-Headers", requestedHeaders || "Content-Type, Authorization");
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
     }

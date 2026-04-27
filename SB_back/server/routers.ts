@@ -585,6 +585,10 @@ export const appRouter = router({
           });
         }
 
+        // Создаем пустой профиль сразу после регистрации,
+        // чтобы запись в profiles существовала даже до заполнения анкеты.
+        await db.upsertProfile(user.id, {});
+
         await db.touchUserLastSeen(user.id);
         const token = await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
         return { user: auth.toSafeUser(user), token };
