@@ -586,8 +586,8 @@ export const appRouter = router({
         }
 
         await db.touchUserLastSeen(user.id);
-        await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
-        return { user: auth.toSafeUser(user) };
+        const token = await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
+        return { user: auth.toSafeUser(user), token };
       }),
 
     login: publicProcedure
@@ -609,8 +609,8 @@ export const appRouter = router({
         }
 
         await db.touchUserLastSeen(user.id);
-        await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
-        return { user: auth.toSafeUser(user) };
+        const token = await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
+        return { user: auth.toSafeUser(user), token };
       }),
 
     requestPasswordReset: publicProcedure
@@ -685,10 +685,10 @@ export const appRouter = router({
         const newPasswordHash = await auth.hashPassword(input.newPassword);
         await db.updateUserPassword(user.id, newPasswordHash);
         await db.touchUserLastSeen(user.id);
-        await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
+        const token = await auth.setSessionCookie(ctx.res, ctx.req, user.id, user.email);
 
         const freshUser = await db.getUserById(user.id);
-        return { success: true, user: auth.toSafeUser(freshUser ?? user) };
+        return { success: true, user: auth.toSafeUser(freshUser ?? user), token };
       }),
 
     logout: protectedProcedure.mutation(({ ctx }) => {

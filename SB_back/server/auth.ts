@@ -83,6 +83,11 @@ export async function verifyToken(token: string): Promise<SessionPayload | null>
 }
 
 export function getTokenFromRequest(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+
   const cookies = parseCookie(req.headers.cookie || "");
   return cookies[COOKIE_NAME] || null;
 }
@@ -107,7 +112,12 @@ function parseCookie(cookieHeader: string): Record<string, string> {
 }
 
 export function getSessionCookieOptions(req: Request) {
-  const isSecure = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https";
+  const forwardedProto = Array.isArray(req.headers["x-forwarded-proto"])
+    ? req.headers["x-forwarded-proto"][0]
+    : req.headers["x-forwarded-proto"];
+  const normalizedProto = String(forwardedProto || "").toLowerCase();
+  const isForwardedSecure = normalizedProto.split(",").some((entry) => entry.trim() === "https");
+  const isSecure = ENV.isProduction || req.protocol === "https" || isForwardedSecure;
 
   return {
     httpOnly: true,

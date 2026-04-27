@@ -31,6 +31,7 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   const isProduction = process.env.NODE_ENV === "production";
+  app.set("trust proxy", 1);
 
   // ✅ CORS для фронта на localhost:3001
   app.use((req, res, next) => {

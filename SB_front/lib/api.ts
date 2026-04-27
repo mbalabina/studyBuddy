@@ -14,6 +14,21 @@ function normalizeApiUrl(url: string) {
 }
 
 const API_URL = normalizeApiUrl(RAW_API_URL)
+const AUTH_TOKEN_KEY = "studybuddy_auth_token"
+
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null
+  return window.localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+function setAuthToken(token: string | null) {
+  if (typeof window === "undefined") return
+  if (!token) {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY)
+    return
+  }
+  window.localStorage.setItem(AUTH_TOKEN_KEY, token)
+}
 
 async function callTRPC({
   method,
@@ -40,6 +55,11 @@ async function callTRPC({
     credentials: "include",
   }
 
+  const token = getAuthToken()
+  if (token) {
+    ;(options.headers as Record<string, string>).Authorization = `Bearer ${token}`
+  }
+
   if (method === "mutation" && wrappedInput !== undefined) {
     options.body = JSON.stringify(wrappedInput)
   }
@@ -56,16 +76,41 @@ async function callTRPC({
 }
 
 export const authAPI = {
-  register: (email: string, password: string, telegramUsername?: string) =>
-    callTRPC({ method: "mutation", procedure: "auth.register", input: { email, password, telegramUsername } }),
-  login: (email: string, password: string) =>
-    callTRPC({ method: "mutation", procedure: "auth.login", input: { email, password } }),
+  register: async (email: string, password: string, telegramUsername?: string) => {
+    const result = await callTRPC({
+      method: "mutation",
+      procedure: "auth.register",
+      input: { email, password, telegramUsername },
+    })
+    const token = (result as { token?: string })?.token
+    if (token) setAuthToken(token)
+    return result
+  },
+  login: async (email: string, password: string) => {
+    const result = await callTRPC({ method: "mutation", procedure: "auth.login", input: { email, password } })
+    const token = (result as { token?: string })?.token
+    if (token) setAuthToken(token)
+    return result
+  },
   requestPasswordReset: (email: string) =>
     callTRPC({ method: "mutation", procedure: "auth.requestPasswordReset", input: { email } }),
-  resetPasswordWithCode: (email: string, code: string, newPassword: string) =>
-    callTRPC({ method: "mutation", procedure: "auth.resetPasswordWithCode", input: { email, code, newPassword } }),
-  logout: () =>
-    callTRPC({ method: "mutation", procedure: "auth.logout" }),
+  resetPasswordWithCode: async (email: string, code: string, newPassword: string) => {
+    const result = await callTRPC({
+      method: "mutation",
+      procedure: "auth.resetPasswordWithCode",
+      input: { email, code, newPassword },
+    })
+    const token = (result as { token?: string })?.token
+    if (token) setAuthToken(token)
+    return result
+  },
+  logout: async () => {
+    try {
+      return await callTRPC({ method: "mutation", procedure: "auth.logout" })
+    } finally {
+      setAuthToken(null)
+    }
+  },
   getMe: () =>
     callTRPC({ method: "query", procedure: "auth.me" }),
 }
