@@ -38,7 +38,11 @@ export function trackYandexGoal(goalId: string, params?: Record<string, unknown>
   const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
   if (typeof ym !== "function") return
 
-  ym(YA_METRIKA_COUNTER_ID, "reachGoal", goalId, params ?? {})
+  if (params && Object.keys(params).length > 0) {
+    ym(YA_METRIKA_COUNTER_ID, "reachGoal", goalId, params)
+  } else {
+    ym(YA_METRIKA_COUNTER_ID, "reachGoal", goalId)
+  }
 }
 
 // Specific goal tracking functions
