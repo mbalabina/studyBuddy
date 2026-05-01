@@ -4,6 +4,7 @@
 import type React from "react"
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
 import { authAPI, matchingAPI, favoritesAPI, profileAPI, goalsAPI } from "./api"
+import { trackSessionReturn } from "./yandex-metrika"
 
 
 // ========== TYPES ==========
@@ -618,6 +619,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!isSessionCurrent(sessionVersion)) {
             return
           }
+
+          trackSessionReturn()
 
           await Promise.all([
             loadCandidatesForSession(sessionVersion, activeGoalId),

@@ -5,6 +5,7 @@ import { useApp, type Candidate } from "@/lib/app-context"
 import { favoritesAPI } from "@/lib/api"
 import { ChevronLeft, Heart, X, MapPin, GraduationCap } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
+import { trackCardView, trackCardLike, trackFirstMatch, trackContactExchange } from "@/lib/yandex-metrika"
 
 const DEFAULT_AVATAR_SRC = "/mascot.png"
 
@@ -335,6 +336,7 @@ export function CandidateCardScreen() {
         <CandidateCardView
           candidate={candidate}
           onOpen={() => {
+            trackCardView()
             setState((prev) => ({ ...prev, selectedCandidate: candidate }))
             setScreen("search-profile")
           }}
@@ -351,8 +353,10 @@ export function CandidateCardScreen() {
           <button
             onClick={() => {
               void (async () => {
+                trackCardLike()
                 const result = await likeCurrent()
                 if (result?.matched) {
+                  trackFirstMatch()
                   setScreen("match-success")
                 }
               })()
@@ -543,6 +547,10 @@ export function MatchSuccessScreen() {
     state.candidates[Math.max(0, state.currentCandidateIndex - 1)] ??
     null
   const contactType = getContactLabel(candidate?.telegram)
+
+  useEffect(() => {
+    trackContactExchange()
+  }, [])
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">

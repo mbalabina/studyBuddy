@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react"
 import { useApp } from "@/lib/app-context"
 import { authAPI, profileAPI } from "@/lib/api"
 import { ChevronLeft, Camera } from "lucide-react"
+import { trackRegistrationComplete } from "@/lib/yandex-metrika"
 
 const MAX_AVATAR_DATA_URL_LENGTH = 62_000
 
@@ -301,6 +302,7 @@ export default function AuthScreen() {
     try {
       if (isRegister) {
         await register(normalizedEmail, password)
+        trackRegistrationComplete()
         if (avatarUrl) {
           try {
             await profileAPI.updateAboutMe({ avatarUrl })

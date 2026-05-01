@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ChevronLeft } from "lucide-react"
+import { trackSurvey1Complete } from "@/lib/yandex-metrika"
 
 // Survey 1: Анкета совместимости (8 questions)
 const survey1Questions = [
@@ -95,6 +96,7 @@ export default function Survey1Screen() {
         friendliness: (answers.friendliness as number) || 0,
         stressResistance: (answers.stressResistance as number) || 0,
       })
+      trackSurvey1Complete()
       setScreen("survey2")
     }
   }

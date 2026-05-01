@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ChevronLeft } from "lucide-react"
+import { trackSurvey2Complete } from "@/lib/yandex-metrika"
 
 const survey2Questions = [
   {
@@ -101,6 +102,7 @@ export default function Survey2Screen() {
         await saveProfile(finalPreferenceUpdates)
         await savePreferences(finalPreferenceUpdates)
         await loadCandidates()
+        trackSurvey2Complete()
         // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск
         // Если нет — это первый онбординг, идём на главную
         setScreen(state.user.firstName ? "search-intro" : "main")
