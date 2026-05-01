@@ -63,6 +63,7 @@ export interface UserProfile {
   learningFormat: string
   communicationStyle: string
   bio: string
+  onboardingStep: string
 }
 
 
@@ -171,6 +172,7 @@ const defaultUser: UserProfile = {
   learningFormat: "",
   communicationStyle: "",
   bio: "",
+  onboardingStep: "",
 }
 
 
@@ -232,6 +234,84 @@ function createAccountScopedDefaults() {
     currentFavoriteIndexByGoal: {},
     currentAdmirerIndexByGoal: {},
   }
+}
+
+const onboardingScreens = new Set<AppScreen>([
+  "about-step1",
+  "about-step2",
+  "about-step3",
+  "about-congrats",
+  "about-goal",
+  "about-congrats2",
+  "survey1",
+  "survey2",
+])
+
+function isAnswered(value: string | string[] | number | null | undefined) {
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "number") return value > 0
+  return Boolean((value ?? "").toString().trim())
+}
+
+function inferOnboardingScreen(user: UserProfile): AppScreen {
+  const step = (user.onboardingStep || "").trim() as AppScreen
+  if (onboardingScreens.has(step)) return step
+
+  if (!user.firstName.trim() || !user.lastName.trim() || !user.city.trim()) {
+    return "about-step1"
+  }
+
+  if (!user.messengerHandle.trim()) {
+    return "about-step3"
+  }
+
+  if (user.studyGoals.length === 0) {
+    return "about-goal"
+  }
+
+  const survey1Complete =
+    isAnswered(user.preferredTime) &&
+    isAnswered(user.motivation) &&
+    isAnswered(user.knowledgeLevel) &&
+    isAnswered(user.learningStyle) &&
+    isAnswered(user.organization) &&
+    isAnswered(user.sociability) &&
+    isAnswered(user.friendliness) &&
+    isAnswered(user.stressResistance)
+
+  const hasAnySurvey1 =
+    isAnswered(user.preferredTime) ||
+    isAnswered(user.motivation) ||
+    isAnswered(user.knowledgeLevel) ||
+    isAnswered(user.learningStyle) ||
+    isAnswered(user.organization) ||
+    isAnswered(user.sociability) ||
+    isAnswered(user.friendliness) ||
+    isAnswered(user.stressResistance)
+
+  if (hasAnySurvey1 && !survey1Complete) {
+    return "survey1"
+  }
+
+  const survey2Complete =
+    isAnswered(user.importantInStudy) &&
+    isAnswered(user.additionalGoals) &&
+    isAnswered(user.partnerLevel) &&
+    isAnswered(user.importantTraits) &&
+    isAnswered(user.partnerLearningStyle)
+
+  const hasAnySurvey2 =
+    isAnswered(user.importantInStudy) ||
+    isAnswered(user.additionalGoals) ||
+    isAnswered(user.partnerLevel) ||
+    isAnswered(user.importantTraits) ||
+    isAnswered(user.partnerLearningStyle)
+
+  if (hasAnySurvey2 && !survey2Complete) {
+    return "survey2"
+  }
+
+  return "main"
 }
 
 
@@ -571,7 +651,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           avatarUrl: profile?.avatarUrl || "",
           learningFormat: profile?.learningFormat || preferences?.learningFormat || "",
           communicationStyle: profile?.communicationStyle || preferences?.communicationStyle || "",
+          importantInStudy: Array.isArray(profile?.importantInStudy) ? profile.importantInStudy : [],
+          importantTraits: Array.isArray(profile?.importantTraits) ? profile.importantTraits : [],
+          partnerLearningStyle: Array.isArray(profile?.partnerLearningStyle) ? profile.partnerLearningStyle : [],
           partnerLevel: preferences?.preferredLevel || "",
+          onboardingStep: profile?.onboardingStep || "",
         },
       }))
       return goals[activeGoalIndex]?.id
@@ -611,13 +695,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             isLoggedIn: true,
             authUserId: user.id,
             authEmail: user.email,
-            screen: "main",
+            screen: "splash",
           }))
 
           const activeGoalId = await loadProfileForSession(sessionVersion)
           if (!isSessionCurrent(sessionVersion)) {
             return
           }
+
+          const resumeScreen = inferOnboardingScreen(stateRef.current.user)
+          setStateForSession(sessionVersion, (prev) => ({
+            ...prev,
+            screen: resumeScreen,
+          }))
 
           await Promise.all([
             loadCandidatesForSession(sessionVersion, activeGoalId),
@@ -877,13 +967,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       authUserId: (user as { id?: number })?.id ?? null,
       authEmail: (user as { email?: string })?.email ?? email,
       apiError: null,
-      screen: "main",
+      screen: "splash",
     }))
 
     const activeGoalId = await loadProfileForSession(sessionVersion)
     if (!isSessionCurrent(sessionVersion)) {
       return
     }
+
+    const resumeScreen = inferOnboardingScreen(stateRef.current.user)
+    setStateForSession(sessionVersion, (prev) => ({
+      ...prev,
+      screen: resumeScreen,
+    }))
 
     await Promise.all([
       loadCandidatesForSession(sessionVersion, activeGoalId),
@@ -967,10 +1063,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sociability: u.sociability,
       friendliness: u.friendliness,
       stressResistance: u.stressResistance,
+      importantInStudy: u.importantInStudy,
+      importantTraits: u.importantTraits,
+      partnerLearningStyle: u.partnerLearningStyle,
       learningFormat: u.learningFormat,
       communicationStyle: u.communicationStyle,
       bio: activeGoal?.description || u.bio,
       avatarUrl: u.avatarUrl,
+      onboardingStep: u.onboardingStep,
     })
 
     if (activeGoal?.id) {

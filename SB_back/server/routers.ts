@@ -774,6 +774,9 @@ export const appRouter = router({
           sociability:      z.number().optional(),
           friendliness:     z.number().optional(),
           stressResistance: z.number().optional(),
+          importantInStudy: z.array(z.string()).optional(),
+          importantTraits: z.array(z.string()).optional(),
+          partnerLearningStyle: z.array(z.string()).optional(),
           bio:              z.string().optional(),
           experience:       z.string().optional(),
           learningFormat:   z.string().optional(),
@@ -784,6 +787,7 @@ export const appRouter = router({
           program:          z.string().optional(),
           course:           z.string().optional(),
           messengerHandle:  z.string().optional(),
+          onboardingStep:   z.string().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
           const profile = await db.upsertProfile(ctx.user!.userId, {
@@ -802,6 +806,9 @@ export const appRouter = router({
             sociability:      input.sociability,
             friendliness:     input.friendliness,
             stressResistance: input.stressResistance,
+            importantInStudy: input.importantInStudy,
+            importantTraits: input.importantTraits,
+            partnerLearningStyle: input.partnerLearningStyle,
             bio:              input.bio,
             experience:       input.experience,
             learningFormat:   input.learningFormat,
@@ -811,6 +818,7 @@ export const appRouter = router({
             program:          input.program,
             course:           input.course,
             messengerHandle:  input.messengerHandle,
+            onboardingStep:   input.onboardingStep,
           });
 
           if (!profile) {

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
+import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
 
 // Survey 1: Анкета совместимости (8 questions)
@@ -63,10 +64,33 @@ const survey1Questions = [
   },
 ]
 
+function hasAnswer(value: string | string[] | number | undefined) {
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "number") return value > 0
+  return Boolean((value ?? "").trim())
+}
+
 export default function Survey1Screen() {
   const { setScreen, updateUser, state } = useApp()
-  const [currentQ, setCurrentQ] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string | string[] | number>>({})
+  const [saving, setSaving] = useState(false)
+  const [answers, setAnswers] = useState<Record<string, string | string[] | number>>(() => ({
+    preferredTime: state.user.preferredTime,
+    motivation: state.user.motivation,
+    knowledgeLevel: state.user.knowledgeLevel,
+    learningStyle: state.user.learningStyle,
+    organization: state.user.organization,
+    sociability: state.user.sociability,
+    friendliness: state.user.friendliness,
+    stressResistance: state.user.stressResistance,
+  }))
+
+  const [currentQ, setCurrentQ] = useState(() => {
+    const index = survey1Questions.findIndex((question) => {
+      const value = answersFromState(state.user)[question.id]
+      return !hasAnswer(value)
+    })
+    return index >= 0 ? index : survey1Questions.length - 1
+  })
 
   const question = survey1Questions[currentQ]
   const total = survey1Questions.length
@@ -74,32 +98,54 @@ export default function Survey1Screen() {
 
   const currentAnswer = answers[question.id]
 
-  const canProceed = () => {
-    if (!currentAnswer) return false
-    if (Array.isArray(currentAnswer) && currentAnswer.length === 0) return false
-    return true
+  const canProceed = () => hasAnswer(currentAnswer as string | string[] | number | undefined)
+
+  const handleNext = async () => {
+    if (!canProceed()) return
+
+    const nextScreen = currentQ < total - 1 ? "survey1" : "survey2"
+
+    setSaving(true)
+    try {
+      await profileAPI.updateAboutMe({
+        [question.id]: currentAnswer,
+        onboardingStep: nextScreen,
+      })
+
+      updateUser({
+        [question.id]: currentAnswer,
+        onboardingStep: nextScreen,
+      } as any)
+
+      if (currentQ < total - 1) {
+        setCurrentQ(currentQ + 1)
+      } else {
+        setScreen("survey2")
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleNext = () => {
-    if (currentQ < total - 1) {
-      setCurrentQ(currentQ + 1)
-    } else {
-      // Save all answers to user
-      updateUser({
-        preferredTime: (answers.preferredTime as string[]) || [],
-        motivation: (answers.motivation as string[]) || [],
-        knowledgeLevel: (answers.knowledgeLevel as string) || "",
-        learningStyle: (answers.learningStyle as string[]) || [],
-        organization: (answers.organization as number) || 0,
-        sociability: (answers.sociability as number) || 0,
-        friendliness: (answers.friendliness as number) || 0,
-        stressResistance: (answers.stressResistance as number) || 0,
-      })
-      setScreen("survey2")
+  const handleBack = async () => {
+    if (currentQ > 0) {
+      setCurrentQ(currentQ - 1)
+      return
+    }
+
+    setSaving(true)
+    try {
+      await profileAPI.updateAboutMe({ onboardingStep: "about-congrats2" })
+      updateUser({ onboardingStep: "about-congrats2" })
+      setScreen("about-congrats2")
+    } finally {
+      setSaving(false)
     }
   }
 
   const toggleChip = (option: string) => {
+    if (saving) return
+
     if (question.type === "single-chip") {
       setAnswers({ ...answers, [question.id]: option })
     } else {
@@ -113,17 +159,18 @@ export default function Survey1Screen() {
   }
 
   const setRating = (value: number) => {
+    if (saving) return
     setAnswers({ ...answers, [question.id]: value })
   }
 
   return (
     <div className="flex flex-col min-h-dvh px-6">
-      {/* Header */}
       <div className="flex items-center justify-between h-14 mt-2">
         <button
-          onClick={() => currentQ > 0 ? setCurrentQ(currentQ - 1) : setScreen("about-congrats2")}
+          onClick={() => void handleBack()}
           className="p-1"
           aria-label="Back"
+          disabled={saving}
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -131,7 +178,6 @@ export default function Survey1Screen() {
         <div className="w-8" />
       </div>
 
-      {/* Progress */}
       <div className="progress-bar mt-2 mb-6">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
@@ -144,7 +190,6 @@ export default function Survey1Screen() {
       </p>
 
       <div className="flex-1 flex flex-col animate-fade-in" key={currentQ}>
-        {/* Question card */}
         <div className="bg-[var(--green-light)] rounded-2xl p-6 mb-8">
           <h2 className="text-xl font-bold text-center leading-snug">{question.title}</h2>
           {question.subtitle && (
@@ -152,7 +197,6 @@ export default function Survey1Screen() {
           )}
         </div>
 
-        {/* Answer area */}
         {(question.type === "multi-chip" || question.type === "single-chip") && question.options && (
           <div className="space-y-3">
             {question.options.map((opt) => {
@@ -164,6 +208,7 @@ export default function Survey1Screen() {
                   key={opt}
                   onClick={() => toggleChip(opt)}
                   className={`option-chip w-full text-left ${isSelected ? "selected" : ""}`}
+                  disabled={saving}
                 >
                   {opt}
                 </button>
@@ -180,6 +225,7 @@ export default function Survey1Screen() {
                   key={n}
                   onClick={() => setRating(n)}
                   className={`rating-btn ${currentAnswer === n ? "selected" : ""}`}
+                  disabled={saving}
                 >
                   {n}
                 </button>
@@ -188,13 +234,25 @@ export default function Survey1Screen() {
           </div>
         )}
 
-        {/* Next button */}
         <div className="mt-auto pb-8 pt-6">
-          <button className="btn-green" onClick={handleNext} disabled={!canProceed()}>
-            Далее
+          <button className="btn-green" onClick={() => void handleNext()} disabled={!canProceed() || saving}>
+            {saving ? "Сохраняем..." : "Далее"}
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+function answersFromState(user: ReturnType<typeof useApp>["state"]["user"]): Record<string, string | string[] | number | undefined> {
+  return {
+    preferredTime: user.preferredTime,
+    motivation: user.motivation,
+    knowledgeLevel: user.knowledgeLevel,
+    learningStyle: user.learningStyle,
+    organization: user.organization,
+    sociability: user.sociability,
+    friendliness: user.friendliness,
+    stressResistance: user.stressResistance,
+  }
 }

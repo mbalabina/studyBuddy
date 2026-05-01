@@ -29,22 +29,68 @@ function AboutFormSteps() {
   const prevScreen =
     step === "about-step1" ? "auth" : step === "about-step2" ? "about-step1" : "about-step2"
 
+  const persistProgress = async (payload: Parameters<typeof profileAPI.updateAboutMe>[0]) => {
+    await profileAPI.updateAboutMe(payload)
+  }
+
+  const handleStep1Next = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await persistProgress({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        age: user.age ?? undefined,
+        city: user.city,
+        onboardingStep: "about-step2",
+      })
+      updateUser({ onboardingStep: "about-step2" })
+      setScreen("about-step2")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleStep2Next = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await persistProgress({
+        university: user.university,
+        program: user.program,
+        course: user.course,
+        onboardingStep: "about-step3",
+      })
+      updateUser({ onboardingStep: "about-step3" })
+      setScreen("about-step3")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleFinish = async () => {
     setLoading(true)
     setError(null)
     try {
-      await profileAPI.updateAboutMe({
+      await persistProgress({
         firstName: user.firstName,
         lastName: user.lastName,
+        age: user.age ?? undefined,
         city: user.city,
         university: user.university,
         program: user.program,
         course: user.course,
         messengerHandle: user.messengerHandle,
+        onboardingStep: "about-goal",
       })
+      updateUser({ onboardingStep: "about-goal" })
       setScreen("about-goal")
-    } catch (e: any) {
-      setError(e.message || "Ошибка сохранения")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения")
     } finally {
       setLoading(false)
     }
@@ -112,9 +158,9 @@ function AboutFormSteps() {
           </div>
           <div className="mt-auto pb-8 pt-6">
             <button className="w-full py-3 bg-black text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => setScreen("about-step2")}
-              disabled={!user.firstName || !user.lastName || !user.city}>
-              Далее
+              onClick={() => void handleStep1Next()}
+              disabled={!user.firstName || !user.lastName || !user.city || loading}>
+              {loading ? "Сохраняем..." : "Далее"}
             </button>
           </div>
         </div>
@@ -143,9 +189,15 @@ function AboutFormSteps() {
           </div>
           <div className="mt-auto pb-8 pt-6 space-y-3">
             <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
-              onClick={() => setScreen("about-step3")}>Далее</button>
+              onClick={() => void handleStep2Next()}
+              disabled={loading}>
+              {loading ? "Сохраняем..." : "Далее"}
+            </button>
             <button className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold"
-              onClick={() => setScreen("about-step1")}>Назад</button>
+              onClick={() => setScreen("about-step1")}
+              disabled={loading}>
+              Назад
+            </button>
           </div>
         </div>
       )}
@@ -206,19 +258,34 @@ function CourseSelector({ value, onChange }: { value: string; onChange: (course:
 }
 
 function CongratsScreen() {
-  const { setScreen } = useApp()
+  const { setScreen, updateUser } = useApp()
+  const [loading, setLoading] = useState(false)
+
+  const handleNext = async () => {
+    setLoading(true)
+    try {
+      await profileAPI.updateAboutMe({ onboardingStep: "survey1" })
+      updateUser({ onboardingStep: "survey1" })
+      setScreen("survey1")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="flex flex-col min-h-dvh items-center justify-center px-6">
       <Image src="/mascot.png" alt="mascot" width={100} height={100} className="w-24 h-24 mb-6 object-contain" />
       <h2 className="text-2xl font-bold mb-2 text-center">Отлично!</h2>
       <p className="text-sm text-gray-500 text-center mb-8">Теперь давай заполним анкету о твоих предпочтениях</p>
-      <button onClick={() => setScreen("survey1")} className="btn-green !w-auto px-8">Дальше</button>
+      <button onClick={() => void handleNext()} disabled={loading} className="btn-green !w-auto px-8">
+        {loading ? "Сохраняем..." : "Дальше"}
+      </button>
     </div>
   )
 }
 
 function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
-  const { setScreen, addStudyGoal } = useApp()
+  const { setScreen, addStudyGoal, updateUser } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalLanguage, setGoalLanguage] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
@@ -259,6 +326,9 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
         language: goalName === languageGoalName ? goalLanguage : "",
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
       })
+      const onboardingStep = nextTo === "about-congrats" ? "about-congrats" : "main"
+      await profileAPI.updateAboutMe({ onboardingStep })
+      updateUser({ onboardingStep })
       setScreen(nextTo as any)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось добавить цель")

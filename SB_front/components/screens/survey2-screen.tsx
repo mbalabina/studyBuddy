@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
+import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
 
 const survey2Questions = [
@@ -63,17 +64,36 @@ const survey2Questions = [
   },
 ]
 
+function hasAnswer(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value.length > 0
+  return Boolean((value ?? "").trim())
+}
+
 export default function Survey2Screen() {
   const { state, setScreen, updateUser, saveProfile, savePreferences, loadCandidates } = useApp()
-  const [currentQ, setCurrentQ] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => ({
+    importantInStudy: state.user.importantInStudy,
+    additionalGoals: state.user.additionalGoals,
+    partnerLevel: state.user.partnerLevel,
+    importantTraits: state.user.importantTraits,
+    partnerLearningStyle: state.user.partnerLearningStyle,
+  }))
+
+  const [currentQ, setCurrentQ] = useState(() => {
+    const index = survey2Questions.findIndex((question) => {
+      const value = answersFromState(state.user)[question.id]
+      return !hasAnswer(value)
+    })
+    return index >= 0 ? index : survey2Questions.length - 1
+  })
 
   const question = survey2Questions[currentQ]
   const total = survey2Questions.length
   const progress = ((currentQ + 1) / total) * 100
   const currentAnswer = answers[question.id]
+
   const finalPreferenceUpdates = {
     importantInStudy: (answers.importantInStudy as string[]) || [],
     additionalGoals: (answers.additionalGoals as string[]) || [],
@@ -82,37 +102,80 @@ export default function Survey2Screen() {
     partnerLearningStyle: (answers.partnerLearningStyle as string[]) || [],
   }
 
-  const canProceed = () => {
-    if (!currentAnswer) return false
-    if (Array.isArray(currentAnswer) && currentAnswer.length === 0) return false
-    return true
+  const canProceed = () => hasAnswer(currentAnswer as string | string[] | undefined)
+
+  const persistCurrentAnswer = async (nextStep: string) => {
+    if (question.id === "partnerLevel") {
+      await savePreferences({
+        partnerLevel: (currentAnswer as string) || "",
+      })
+      await profileAPI.updateAboutMe({ onboardingStep: nextStep })
+      return
+    }
+
+    await profileAPI.updateAboutMe({
+      [question.id]: currentAnswer,
+      onboardingStep: nextStep,
+    })
   }
 
   const handleNext = async () => {
-    if (currentQ < total - 1) {
-      setCurrentQ(currentQ + 1)
-    } else {
-      updateUser(finalPreferenceUpdates)
+    if (!canProceed()) return
 
-      setSaving(true)
-      setError(null)
+    const isLastQuestion = currentQ === total - 1
+    const finalScreen = state.user.firstName ? "search-intro" : "main"
+    const nextStep = isLastQuestion ? finalScreen : "survey2"
 
-      try {
-        await saveProfile(finalPreferenceUpdates)
-        await savePreferences(finalPreferenceUpdates)
-        await loadCandidates()
-        // Если firstName уже есть — добавляем новую цель, возвращаемся в поиск
-        // Если нет — это первый онбординг, идём на главную
-        setScreen(state.user.firstName ? "search-intro" : "main")
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Не удалось сохранить анкету")
-      } finally {
-        setSaving(false)
+    setSaving(true)
+    setError(null)
+
+    try {
+      await persistCurrentAnswer(nextStep)
+      updateUser({
+        [question.id]: currentAnswer,
+        onboardingStep: nextStep,
+      } as any)
+
+      if (!isLastQuestion) {
+        setCurrentQ(currentQ + 1)
+        return
       }
+
+      updateUser(finalPreferenceUpdates)
+      await saveProfile({ ...finalPreferenceUpdates, onboardingStep: nextStep })
+      await savePreferences(finalPreferenceUpdates)
+      await loadCandidates()
+      setScreen(finalScreen)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось сохранить анкету")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleBack = async () => {
+    if (currentQ > 0) {
+      setCurrentQ(currentQ - 1)
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      await profileAPI.updateAboutMe({ onboardingStep: "survey1" })
+      updateUser({ onboardingStep: "survey1" })
+      setScreen("survey1")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось вернуться")
+    } finally {
+      setSaving(false)
     }
   }
 
   const toggleChip = (option: string) => {
+    if (saving) return
+
     if (question.type === "single-chip") {
       setAnswers({ ...answers, [question.id]: option })
     } else {
@@ -131,9 +194,10 @@ export default function Survey2Screen() {
     <div className="flex flex-col min-h-dvh px-6">
       <div className="flex items-center justify-between h-14 mt-2">
         <button
-          onClick={() => currentQ > 0 ? setCurrentQ(currentQ - 1) : setScreen("survey1")}
+          onClick={() => void handleBack()}
           className="p-1"
           aria-label="Back"
+          disabled={saving}
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -170,6 +234,7 @@ export default function Survey2Screen() {
                 key={opt}
                 onClick={() => toggleChip(opt)}
                 className={`option-chip w-full text-left ${isSelected ? "selected" : ""}`}
+                disabled={saving}
               >
                 {opt}
               </button>
@@ -186,4 +251,14 @@ export default function Survey2Screen() {
       </div>
     </div>
   )
+}
+
+function answersFromState(user: ReturnType<typeof useApp>["state"]["user"]): Record<string, string | string[] | undefined> {
+  return {
+    importantInStudy: user.importantInStudy,
+    additionalGoals: user.additionalGoals,
+    partnerLevel: user.partnerLevel,
+    importantTraits: user.importantTraits,
+    partnerLearningStyle: user.partnerLearningStyle,
+  }
 }
