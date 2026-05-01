@@ -54,6 +54,13 @@ export function trackSurvey2Complete() {
   trackYandexGoal(YA_GOALS.SURVEY2_COMPLETE)
 }
 
+<<<<<<< HEAD
+=======
+export function trackAnketaRated() {
+  trackYandexGoal(YA_GOALS.ANKETA_RATED)
+}
+
+>>>>>>> 728f6d26dfb05080b19e8ff465e626d750fbe1b8
 export function trackFirstMatch() {
   trackYandexGoal(YA_GOALS.FIRST_MATCH)
 }
@@ -70,6 +77,13 @@ export function trackContactExchange() {
   trackYandexGoal(YA_GOALS.CONTACT_EXCHANGE)
 }
 
+<<<<<<< HEAD
+=======
+export function trackAppRated() {
+  trackYandexGoal(YA_GOALS.APP_RATED)
+}
+
+>>>>>>> 728f6d26dfb05080b19e8ff465e626d750fbe1b8
 export function trackSessionReturn() {
   trackYandexGoal(YA_GOALS.SESSION_RETURN)
 }

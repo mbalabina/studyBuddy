@@ -131,6 +131,9 @@ export const profileAPI = {
     motivation?: string[]
     learningStyle?: string[]
     additionalGoals?: string[]
+    importantInStudy?: string[]
+    importantTraits?: string[]
+    partnerLearningStyle?: string[]
     organization?: number
     sociability?: number
     friendliness?: number
@@ -144,6 +147,7 @@ export const profileAPI = {
     messengerHandle?: string
     learningFormat?: string
     communicationStyle?: string
+    onboardingStep?: string
   }) =>
     callTRPC({ method: "mutation", procedure: "profile.updateAboutMe", input: data }),
 
