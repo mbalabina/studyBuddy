@@ -392,6 +392,19 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
   const hasContacts = Boolean(user.messengerHandle.trim())
   const hasGoal = user.studyGoals.length > 0
 
+  // Минимальный критерий: профиль + контакты + хотя бы одна цель.
+  const minimalOnboardingComplete =
+    hasBaseProfile &&
+    hasContacts &&
+    hasGoal
+
+  // Если минимальный онбординг завершён, НЕ возвращаем пользователя в анкеты.
+  // Старые пользователи с пустыми дополнительными полями идут сразу в main.
+  if (minimalOnboardingComplete) {
+    return "main"
+  }
+
+  // Ниже — логика только для новых/незаполненных.
   const survey1Complete =
     isAnswered(user.preferredTime) &&
     isAnswered(user.motivation) &&
@@ -409,55 +422,19 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     isAnswered(user.importantTraits) &&
     isAnswered(user.partnerLearningStyle)
 
-  console.log("ONBOARDING DEBUG", {
-    hasBaseProfile,
-    hasContacts,
-    hasGoal,
-    survey1Complete,
-    survey2Complete,
-    preferredTime: user.preferredTime,
-    motivation: user.motivation,
-    knowledgeLevel: user.knowledgeLevel,
-    learningStyle: user.learningStyle,
-    organization: user.organization,
-    sociability: user.sociability,
-    friendliness: user.friendliness,
-    stressResistance: user.stressResistance,
-    importantInStudy: user.importantInStudy,
-    additionalGoals: user.additionalGoals,
-    partnerLevel: user.partnerLevel,
-    importantTraits: user.importantTraits,
-    partnerLearningStyle: user.partnerLearningStyle,
-  })
-
-  // 1. Если все данные онбординга заполнены, не возвращаем в анкеты
-  if (
-    hasBaseProfile &&
-    hasContacts &&
-    hasGoal &&
-    survey1Complete &&
-    survey2Complete
-  ) {
-    return "main"
-  }
-
-  // 2. Если опрос 1 ещё не завершён — идём в survey1
   if (!survey1Complete) {
     return "survey1"
   }
 
-  // 3. Если опрос 2 ещё не завершён — идём в survey2
   if (!survey2Complete) {
     return "survey2"
   }
 
-  // 4. Пробуем использовать сохранённый onboardingStep из профиля
   const step = (user.onboardingStep || "").trim() as AppScreen
   if (onboardingScreens.has(step)) {
     return step
   }
 
-  // 5. Если сохранённый шаг невалиден — определяем шаг по данным
   if (!hasBaseProfile) {
     return "about-step1"
   }
@@ -470,7 +447,6 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     return "about-goal"
   }
 
-  // 6. На всякий случай дефолт — main
   return "main"
 }
 
