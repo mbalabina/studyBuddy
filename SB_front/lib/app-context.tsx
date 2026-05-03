@@ -382,12 +382,6 @@ function mergeUserWithOnboardingDraft(serverUser: UserProfile, draft: Partial<Us
   return merged
 }
 
-function isAnswered(value: string | string[] | number | null | undefined) {
-  if (Array.isArray(value)) return value.length > 0
-  if (typeof value === "number") return value > 0
-  return Boolean((value ?? "").toString().trim())
-}
-
 function inferOnboardingScreen(user: UserProfile): AppScreen {
   const hasBaseProfile = Boolean(
     user.firstName.trim() &&
@@ -415,6 +409,28 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     isAnswered(user.importantTraits) &&
     isAnswered(user.partnerLearningStyle)
 
+  console.log("ONBOARDING DEBUG", {
+    hasBaseProfile,
+    hasContacts,
+    hasGoal,
+    survey1Complete,
+    survey2Complete,
+    preferredTime: user.preferredTime,
+    motivation: user.motivation,
+    knowledgeLevel: user.knowledgeLevel,
+    learningStyle: user.learningStyle,
+    organization: user.organization,
+    sociability: user.sociability,
+    friendliness: user.friendliness,
+    stressResistance: user.stressResistance,
+    importantInStudy: user.importantInStudy,
+    additionalGoals: user.additionalGoals,
+    partnerLevel: user.partnerLevel,
+    importantTraits: user.importantTraits,
+    partnerLearningStyle: user.partnerLearningStyle,
+  })
+
+  // 1. Если все данные онбординга заполнены, не возвращаем в анкеты
   if (
     hasBaseProfile &&
     hasContacts &&
@@ -425,19 +441,23 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     return "main"
   }
 
+  // 2. Если опрос 1 ещё не завершён — идём в survey1
   if (!survey1Complete) {
     return "survey1"
   }
 
+  // 3. Если опрос 2 ещё не завершён — идём в survey2
   if (!survey2Complete) {
     return "survey2"
   }
 
+  // 4. Пробуем использовать сохранённый onboardingStep из профиля
   const step = (user.onboardingStep || "").trim() as AppScreen
   if (onboardingScreens.has(step)) {
     return step
   }
 
+  // 5. Если сохранённый шаг невалиден — определяем шаг по данным
   if (!hasBaseProfile) {
     return "about-step1"
   }
@@ -450,6 +470,7 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     return "about-goal"
   }
 
+  // 6. На всякий случай дефолт — main
   return "main"
 }
 
