@@ -50,6 +50,7 @@ export default function SearchIntroScreen() {
   const {
     state,
     setScreen,
+    openGoalCreator,
     setActiveGoal,
     loadCandidates,
     loadFavoriteCandidates,
@@ -136,7 +137,7 @@ export default function SearchIntroScreen() {
         ))}
 
         <button
-        onClick={() => setScreen("new-goal")}
+        onClick={openGoalCreator}
         className="px-3 py-1.5 rounded-full border border-gray-300 text-sm text-gray-400 whitespace-nowrap"
         >
           +
@@ -256,7 +257,7 @@ export default function SearchIntroScreen() {
 
 
 export function CandidateCardScreen() {
-  const { state, setScreen, likeCurrent, rejectCurrent, setState } = useApp()
+  const { state, setScreen, openGoalCreator, likeCurrent, rejectCurrent, setState } = useApp()
 
   const candidate = state.candidates[state.currentCandidateIndex]
   const goals = state.user.studyGoals
@@ -310,7 +311,7 @@ export function CandidateCardScreen() {
             </p>
             <button
               className="btn-green"
-              onClick={() => setScreen(hasGoals ? "search-intro" : "new-goal")}
+              onClick={() => (hasGoals ? setScreen("search-intro") : openGoalCreator())}
             >
               {hasGoals ? "Выбрать цель" : "Добавить цель"}
             </button>

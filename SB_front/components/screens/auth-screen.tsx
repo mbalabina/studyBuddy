@@ -284,7 +284,6 @@ export default function AuthScreen() {
       try {
         await authAPI.resetPasswordWithCode(normalizedEmail, code, newPassword)
         await login(normalizedEmail, newPassword)
-        setScreen("main")
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Ошибка"
         if (msg.includes("Неверный код") || msg.includes("истек")) {
@@ -309,18 +308,18 @@ export default function AuthScreen() {
       if (isRegister) {
         await register(normalizedEmail, password)
         trackRegistrationComplete()
-        if (avatarUrl) {
-          try {
-            await profileAPI.updateAboutMe({ avatarUrl })
-          } catch (avatarError) {
-            console.error("Failed to save avatar during registration", avatarError)
-          }
+        try {
+          await profileAPI.updateAboutMe({
+            onboardingStep: "about-step1",
+            ...(avatarUrl ? { avatarUrl } : {}),
+          })
+        } catch (avatarError) {
+          console.error("Failed to save onboarding progress during registration", avatarError)
         }
         // После регистрации идём заполнять профиль
         setScreen("about-step1")
       } else {
         await login(normalizedEmail, password)
-        setScreen("main")
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Ошибка"

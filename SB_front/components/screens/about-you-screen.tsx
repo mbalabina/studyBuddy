@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
@@ -285,7 +285,7 @@ function CongratsScreen() {
 }
 
 function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
-  const { setScreen, addStudyGoal, updateUser } = useApp()
+  const { state, setScreen, addStudyGoal, updateStudyGoal, updateUser } = useApp()
   const [goalName, setGoalName] = useState("")
   const [goalLanguage, setGoalLanguage] = useState("")
   const [goalDesc, setGoalDesc] = useState("")
@@ -307,8 +307,37 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
     "Русский",
   ]
 
+  const isStandaloneGoalScreen = state.screen === "new-goal"
+  const editingGoalId = isStandaloneGoalScreen ? state.goalEditor.goalId : null
+  const editingGoal =
+    typeof editingGoalId === "number"
+      ? state.user.studyGoals.find((goal) => goal.id === editingGoalId) ?? null
+      : null
+  const isEditing = Boolean(editingGoal)
+
+  useEffect(() => {
+    if (!isStandaloneGoalScreen) return
+
+    if (editingGoal) {
+      setGoalName(editingGoal.name || "")
+      setGoalLanguage(editingGoal.language || "")
+      setGoalDesc(editingGoal.description || "")
+      setError(null)
+      return
+    }
+
+    setGoalName("")
+    setGoalLanguage("")
+    setGoalDesc("")
+    setError(null)
+  }, [editingGoal, isStandaloneGoalScreen])
+
   const handleNext = async () => {
     if (!goalName) {
+      if (isEditing) {
+        setError("Выбери цель")
+        return
+      }
       setScreen(nextTo as any)
       return
     }
@@ -320,6 +349,18 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
     setIsSubmitting(true)
     setError(null)
     try {
+      if (isEditing && editingGoalId) {
+        await updateStudyGoal(editingGoalId, {
+          name: goalName,
+          description: goalDesc,
+          language: goalName === languageGoalName ? goalLanguage : "",
+          startDate: editingGoal?.startDate || "",
+          isActive: editingGoal?.isActive ?? false,
+        })
+        setScreen("main")
+        return
+      }
+
       await addStudyGoal({
         name: goalName,
         description: goalDesc,
@@ -343,11 +384,11 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
         <button onClick={() => setScreen(backTo as any)} className="p-1" aria-label="Back">
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <span className="text-base font-semibold">Анкета о тебе</span>
+        <span className="text-base font-semibold">{isStandaloneGoalScreen ? "Учебная цель" : "Анкета о тебе"}</span>
         <div className="w-8" />
       </div>
       <div className="flex-1 flex flex-col">
-        <h2 className="text-2xl font-bold text-center mb-2">Поставь цели</h2>
+        <h2 className="text-2xl font-bold text-center mb-2">{isEditing ? "Редактируй цель" : "Поставь цели"}</h2>
         <p className="text-sm text-gray-500 text-center mb-8 leading-relaxed">
           Расскажи, что бы ты хотел изучать вместе со своим бадди.
         </p>
@@ -392,7 +433,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
           <button className="w-full py-3 bg-black text-white rounded-xl font-semibold"
             onClick={() => void handleNext()}
             disabled={isSubmitting}>
-            {isSubmitting ? "Сохраняем..." : "Далее"}
+            {isSubmitting ? "Сохраняем..." : isEditing ? "Сохранить" : "Далее"}
           </button>
         </div>
       </div>
