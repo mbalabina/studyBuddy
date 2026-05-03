@@ -293,6 +293,8 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
   const [error, setError] = useState<string | null>(null)
 
   const languageGoalName = "Изучение языка"
+  const languageExamGoalName = "Языковой экзамен"
+  const egeGoalName = "ЕГЭ"
   const goalOptions = [languageGoalName, "Языковой экзамен", "ЕГЭ", "ОГЭ", "Поступление", "Стажировка", "Другое"]
   const languageOptions = [
     "Английский",
@@ -306,6 +308,25 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
     "Арабский",
     "Русский",
   ]
+  const egeSubjectOptions = [
+    "Математика",
+    "Русский язык",
+    "Обществознание",
+    "История",
+    "Биология",
+    "Химия",
+    "Физика",
+    "Информатика",
+    "Литература",
+    "География",
+    "Английский язык",
+    "Немецкий язык",
+    "Французский язык",
+    "Испанский язык",
+    "Китайский язык",
+  ]
+  const shouldShowLanguageSelector = goalName === languageGoalName || goalName === languageExamGoalName
+  const shouldShowEgeSubjectSelector = goalName === egeGoalName
 
   const isStandaloneGoalScreen = state.screen === "new-goal"
   const isOnboardingGoalScreen = state.screen === "about-goal"
@@ -383,6 +404,14 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
       setError("Выбери язык для цели «Изучение языка»")
       return
     }
+    if (goalName === languageExamGoalName && !goalLanguage.trim()) {
+      setError("Выбери язык для цели «Языковой экзамен»")
+      return
+    }
+    if (goalName === egeGoalName && !goalLanguage.trim()) {
+      setError("Выбери предмет для цели «ЕГЭ»")
+      return
+    }
 
     setIsSubmitting(true)
     setError(null)
@@ -391,7 +420,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
         await updateStudyGoal(editingGoalId, {
           name: goalName,
           description: goalDesc,
-          language: goalName === languageGoalName ? goalLanguage : "",
+          language: (goalName === languageGoalName || goalName === languageExamGoalName || goalName === egeGoalName) ? goalLanguage : "",
           startDate: editingGoal?.startDate || "",
           isActive: editingGoal?.isActive ?? false,
         })
@@ -402,7 +431,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
       await addStudyGoal({
         name: goalName,
         description: goalDesc,
-        language: goalName === languageGoalName ? goalLanguage : "",
+        language: (goalName === languageGoalName || goalName === languageExamGoalName || goalName === egeGoalName) ? goalLanguage : "",
         startDate: new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
       })
       const onboardingStep = nextTo === "about-congrats" ? "about-congrats" : "main"
@@ -440,7 +469,7 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
               onChange={(e) => {
                 const value = e.target.value
                 setGoalName(value)
-                if (value !== languageGoalName) {
+                if (value !== languageGoalName && value !== languageExamGoalName && value !== egeGoalName) {
                   setGoalLanguage("")
                 }
               }}
@@ -450,16 +479,31 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
             </select>
             <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
           </div>
-          {goalName === languageGoalName && (
+          {shouldShowLanguageSelector && (
             <div className="relative">
               <select
                 value={goalLanguage}
                 onChange={(e) => setGoalLanguage(e.target.value)}
                 className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors"
               >
-                <option value="">Какой язык хочешь изучать?</option>
+                <option value="">{goalName === languageExamGoalName ? "Выбери язык экзамена" : "Какой язык хочешь изучать?"}</option>
                 {languageOptions.map((language) => (
                   <option key={language} value={language}>{language}</option>
+                ))}
+              </select>
+              <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+          {shouldShowEgeSubjectSelector && (
+            <div className="relative">
+              <select
+                value={goalLanguage}
+                onChange={(e) => setGoalLanguage(e.target.value)}
+                className="w-full py-3 px-4 border border-gray-200 rounded-xl text-base appearance-none bg-white focus:border-black outline-none transition-colors"
+              >
+                <option value="">Выбери предмет ЕГЭ</option>
+                {egeSubjectOptions.map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
                 ))}
               </select>
               <ChevronLeft className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 -rotate-90 text-gray-400 pointer-events-none" />

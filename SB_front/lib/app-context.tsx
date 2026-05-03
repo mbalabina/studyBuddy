@@ -196,7 +196,8 @@ function normalizeLanguageValue(value: string | null | undefined) {
 }
 
 function isLanguageStudyGoalName(goalName: string | null | undefined) {
-  return normalizeGoalValue(goalName) === "изучение языка"
+  const normalized = normalizeGoalValue(goalName)
+  return normalized === "изучение языка" || normalized === "языковой экзамен" || normalized === "егэ"
 }
 
 function isNotFoundApiError(error: unknown) {

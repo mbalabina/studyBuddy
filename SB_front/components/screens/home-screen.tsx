@@ -9,8 +9,12 @@ import { TabBar } from "@/components/screens/tab-bar"
 function formatGoalTitle(goal: { name: string; language?: string }) {
   const name = goal.name?.trim() || ""
   const language = goal.language?.trim() || ""
+  const normalizedName = name.toLowerCase()
   if (!name) return ""
-  if (name.toLowerCase() === "изучение языка" && language) {
+  if (
+    (normalizedName === "изучение языка" || normalizedName === "языковой экзамен" || normalizedName === "егэ")
+    && language
+  ) {
     return `${name} · ${language}`
   }
   return name
