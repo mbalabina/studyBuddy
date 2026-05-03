@@ -260,6 +260,127 @@ const onboardingScreens = new Set<AppScreen>([
   "survey2",
 ])
 
+const ONBOARDING_DRAFT_STORAGE_PREFIX = "studybuddy_onboarding_draft_v1:"
+const onboardingDraftFieldKeys: Array<keyof UserProfile> = [
+  "firstName",
+  "lastName",
+  "age",
+  "city",
+  "university",
+  "program",
+  "course",
+  "messenger",
+  "messengerHandle",
+  "preferredTime",
+  "motivation",
+  "knowledgeLevel",
+  "learningStyle",
+  "organization",
+  "sociability",
+  "friendliness",
+  "stressResistance",
+  "importantInStudy",
+  "additionalGoals",
+  "partnerLevel",
+  "importantTraits",
+  "partnerLearningStyle",
+  "onboardingStep",
+]
+
+function isOnboardingScreen(screen: AppScreen) {
+  return onboardingScreens.has(screen)
+}
+
+function getOnboardingIdentity(userId?: number | null, email?: string | null) {
+  if (typeof userId === "number" && userId > 0) return `uid:${userId}`
+  const normalizedEmail = (email ?? "").trim().toLowerCase()
+  if (normalizedEmail) return `email:${normalizedEmail}`
+  return null
+}
+
+function getOnboardingDraftStorageKey(userId?: number | null, email?: string | null) {
+  const identity = getOnboardingIdentity(userId, email)
+  return identity ? `${ONBOARDING_DRAFT_STORAGE_PREFIX}${identity}` : null
+}
+
+function readOnboardingDraft(userId?: number | null, email?: string | null): Partial<UserProfile> | null {
+  if (typeof window === "undefined") return null
+  const key = getOnboardingDraftStorageKey(userId, email)
+  if (!key) return null
+
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") return null
+    return parsed as Partial<UserProfile>
+  } catch {
+    return null
+  }
+}
+
+function writeOnboardingDraft(userId: number | null | undefined, email: string | null | undefined, patch: Partial<UserProfile>) {
+  if (typeof window === "undefined") return
+  const key = getOnboardingDraftStorageKey(userId, email)
+  if (!key) return
+
+  const existing = readOnboardingDraft(userId, email) ?? {}
+  const merged = { ...existing, ...patch }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(merged))
+  } catch {
+    // ignore storage quota/private mode issues
+  }
+}
+
+function clearOnboardingDraft(userId?: number | null, email?: string | null) {
+  if (typeof window === "undefined") return
+  const key = getOnboardingDraftStorageKey(userId, email)
+  if (!key) return
+  window.localStorage.removeItem(key)
+}
+
+function mergeUserWithOnboardingDraft(serverUser: UserProfile, draft: Partial<UserProfile> | null): UserProfile {
+  if (!draft) return serverUser
+  const merged: UserProfile = { ...serverUser }
+
+  for (const key of onboardingDraftFieldKeys) {
+    const localValue = draft[key]
+    if (localValue === undefined || localValue === null) continue
+    const serverValue = merged[key]
+
+    if (typeof serverValue === "string") {
+      if (!serverValue.trim() && typeof localValue === "string" && localValue.trim()) {
+        ;(merged as any)[key] = localValue
+      }
+      continue
+    }
+
+    if (typeof serverValue === "number") {
+      if (serverValue <= 0 && typeof localValue === "number" && localValue > 0) {
+        ;(merged as any)[key] = localValue
+      }
+      continue
+    }
+
+    if (Array.isArray(serverValue)) {
+      if (serverValue.length === 0 && Array.isArray(localValue) && localValue.length > 0) {
+        ;(merged as any)[key] = localValue
+      }
+    }
+  }
+
+  const serverStep = (serverUser.onboardingStep || "").trim() as AppScreen
+  if (!onboardingScreens.has(serverStep)) {
+    const localStep = (draft.onboardingStep || "").trim() as AppScreen
+    if (onboardingScreens.has(localStep)) {
+      merged.onboardingStep = localStep
+    }
+  }
+
+  return merged
+}
+
 function isAnswered(value: string | string[] | number | null | undefined) {
   if (Array.isArray(value)) return value.length > 0
   if (typeof value === "number") return value > 0
@@ -623,40 +744,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const activeGoalIndex = activeGoalIndexFromApi >= 0 ? activeGoalIndexFromApi : 0
 
 
+      const loadedUser: UserProfile = {
+        ...defaultUser,
+        firstName: profile?.firstName || "",
+        lastName: profile?.lastName || "",
+        age: typeof profile?.age === "number" ? profile.age : null,
+        city: profile?.city || "",
+        role: profile?.course?.includes("класс") ? "pupil" : "student",
+        university: profile?.university || "",
+        program: profile?.program || "",
+        course: profile?.course || defaultUser.course,
+        messengerHandle: profile?.messengerHandle || safeUser?.telegramUsername || "",
+        knowledgeLevel: profile?.proficiencyLevel || "",
+        preferredTime: Array.isArray(profile?.schedule) ? profile.schedule : [],
+        motivation: Array.isArray(profile?.motivation) ? profile.motivation : [],
+        learningStyle: Array.isArray(profile?.learningStyle) ? profile.learningStyle : [],
+        organization: typeof profile?.organization === "number" ? profile.organization : 0,
+        sociability: typeof profile?.sociability === "number" ? profile.sociability : 0,
+        friendliness: typeof profile?.friendliness === "number" ? profile.friendliness : 0,
+        stressResistance: typeof profile?.stressResistance === "number" ? profile.stressResistance : 0,
+        additionalGoals: Array.isArray(profile?.additionalGoals) ? profile.additionalGoals : [],
+        studyGoals: goals,
+        bio: profile?.bio || "",
+        avatarUrl: profile?.avatarUrl || "",
+        learningFormat: profile?.learningFormat || preferences?.learningFormat || "",
+        communicationStyle: profile?.communicationStyle || preferences?.communicationStyle || "",
+        importantInStudy: Array.isArray(profile?.importantInStudy) ? profile.importantInStudy : [],
+        importantTraits: Array.isArray(profile?.importantTraits) ? profile.importantTraits : [],
+        partnerLearningStyle: Array.isArray(profile?.partnerLearningStyle) ? profile.partnerLearningStyle : [],
+        partnerLevel: preferences?.preferredLevel || "",
+        onboardingStep: profile?.onboardingStep || "",
+      }
+
+      const fallbackDraft = readOnboardingDraft(safeUser?.id, safeUser?.email)
+      const hydratedUser = mergeUserWithOnboardingDraft(loadedUser, fallbackDraft)
+
       setStateForSession(sessionVersion, (prev) => ({
         ...prev,
         currentGoalIndex: goals.length > 0 ? activeGoalIndex : 0,
-        user: {
-          ...defaultUser,
-          firstName: profile?.firstName || "",
-          lastName: profile?.lastName || "",
-          age: typeof profile?.age === "number" ? profile.age : null,
-          city: profile?.city || "",
-          role: profile?.course?.includes("класс") ? "pupil" : "student",
-          university: profile?.university || "",
-          program: profile?.program || "",
-          course: profile?.course || defaultUser.course,
-          messengerHandle: profile?.messengerHandle || safeUser?.telegramUsername || "",
-          knowledgeLevel: profile?.proficiencyLevel || "",
-          preferredTime: Array.isArray(profile?.schedule) ? profile.schedule : [],
-          motivation: Array.isArray(profile?.motivation) ? profile.motivation : [],
-          learningStyle: Array.isArray(profile?.learningStyle) ? profile.learningStyle : [],
-          organization: typeof profile?.organization === "number" ? profile.organization : 0,
-          sociability: typeof profile?.sociability === "number" ? profile.sociability : 0,
-          friendliness: typeof profile?.friendliness === "number" ? profile.friendliness : 0,
-          stressResistance: typeof profile?.stressResistance === "number" ? profile.stressResistance : 0,
-          additionalGoals: Array.isArray(profile?.additionalGoals) ? profile.additionalGoals : [],
-          studyGoals: goals,
-          bio: profile?.bio || "",
-          avatarUrl: profile?.avatarUrl || "",
-          learningFormat: profile?.learningFormat || preferences?.learningFormat || "",
-          communicationStyle: profile?.communicationStyle || preferences?.communicationStyle || "",
-          importantInStudy: Array.isArray(profile?.importantInStudy) ? profile.importantInStudy : [],
-          importantTraits: Array.isArray(profile?.importantTraits) ? profile.importantTraits : [],
-          partnerLearningStyle: Array.isArray(profile?.partnerLearningStyle) ? profile.partnerLearningStyle : [],
-          partnerLevel: preferences?.preferredLevel || "",
-          onboardingStep: profile?.onboardingStep || "",
-        },
+        user: hydratedUser,
       }))
       return goals[activeGoalIndex]?.id
     } catch (e) {
@@ -704,6 +830,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
 
           const resumeScreen = inferOnboardingScreen(stateRef.current.user)
+          if (isOnboardingScreen(resumeScreen)) {
+            writeOnboardingDraft(user.id, user.email, { onboardingStep: resumeScreen })
+          } else {
+            clearOnboardingDraft(user.id, user.email)
+          }
           setStateForSession(sessionVersion, (prev) => ({
             ...prev,
             screen: resumeScreen,
@@ -758,11 +889,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ========== БАЗОВЫЕ ФУНКЦИИ ==========
   const setScreen = useCallback((screen: AppScreen) => {
-    setState((prev) => ({
-      ...prev,
-      screen,
-      goalEditor: screen === "new-goal" ? prev.goalEditor : { goalId: null },
-    }))
+    setState((prev) => {
+      if (isOnboardingScreen(screen)) {
+        writeOnboardingDraft(prev.authUserId, prev.authEmail, { onboardingStep: screen })
+      } else if (screen === "main" || screen === "search-intro" || screen === "profile") {
+        clearOnboardingDraft(prev.authUserId, prev.authEmail)
+      }
+
+      return {
+        ...prev,
+        screen,
+        goalEditor: screen === "new-goal" ? prev.goalEditor : { goalId: null },
+      }
+    })
   }, [])
 
   const openGoalCreator = useCallback(() => {
@@ -783,7 +922,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 
   const updateUser = useCallback((updates: Partial<UserProfile>) => {
-    setState((prev) => ({ ...prev, user: { ...prev.user, ...updates } }))
+    setState((prev) => {
+      const nextUser = { ...prev.user, ...updates }
+
+      const draftPatch: Partial<UserProfile> = {}
+      for (const key of onboardingDraftFieldKeys) {
+        if (key in updates) {
+          ;(draftPatch as any)[key] = (updates as any)[key]
+        }
+      }
+
+      if (Object.keys(draftPatch).length > 0) {
+        writeOnboardingDraft(prev.authUserId, prev.authEmail, draftPatch)
+      }
+
+      return { ...prev, user: nextUser }
+    })
   }, [])
 
 
@@ -1037,6 +1191,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const resumeScreen = inferOnboardingScreen(stateRef.current.user)
+    if (isOnboardingScreen(resumeScreen)) {
+      writeOnboardingDraft((user as { id?: number })?.id ?? null, (user as { email?: string })?.email ?? email, {
+        onboardingStep: resumeScreen,
+      })
+    } else {
+      clearOnboardingDraft((user as { id?: number })?.id ?? null, (user as { email?: string })?.email ?? email)
+    }
     setStateForSession(sessionVersion, (prev) => ({
       ...prev,
       screen: resumeScreen,
@@ -1098,6 +1259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       authEmail: null,
       screen: "auth",
     }))
+    clearOnboardingDraft(stateRef.current.authUserId, stateRef.current.authEmail)
   }, [beginSessionTransition, isSessionCurrent, setStateForSession])
 
 
