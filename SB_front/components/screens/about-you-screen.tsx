@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
@@ -308,15 +308,39 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
   ]
 
   const isStandaloneGoalScreen = state.screen === "new-goal"
+  const isOnboardingGoalScreen = state.screen === "about-goal"
   const editingGoalId = isStandaloneGoalScreen ? state.goalEditor.goalId : null
   const editingGoal =
     typeof editingGoalId === "number"
       ? state.user.studyGoals.find((goal) => goal.id === editingGoalId) ?? null
       : null
   const isEditing = Boolean(editingGoal)
+  const goalDraftKey = useMemo(() => {
+    const userKey = typeof state.authUserId === "number" && state.authUserId > 0
+      ? `uid:${state.authUserId}`
+      : state.authEmail?.trim().toLowerCase()
+        ? `email:${state.authEmail.trim().toLowerCase()}`
+        : ""
+    return userKey ? `studybuddy_onboarding_goal_draft_v1:${userKey}` : ""
+  }, [state.authEmail, state.authUserId])
 
   useEffect(() => {
-    if (!isStandaloneGoalScreen) return
+    if (!isStandaloneGoalScreen) {
+      if (isOnboardingGoalScreen && goalDraftKey) {
+        try {
+          const raw = window.localStorage.getItem(goalDraftKey)
+          if (raw) {
+            const draft = JSON.parse(raw) as { goalName?: string; goalLanguage?: string; goalDesc?: string }
+            setGoalName(draft.goalName ?? "")
+            setGoalLanguage(draft.goalLanguage ?? "")
+            setGoalDesc(draft.goalDesc ?? "")
+          }
+        } catch {
+          // ignore invalid draft
+        }
+      }
+      return
+    }
 
     if (editingGoal) {
       setGoalName(editingGoal.name || "")
@@ -330,11 +354,25 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
     setGoalLanguage("")
     setGoalDesc("")
     setError(null)
-  }, [editingGoal, isStandaloneGoalScreen])
+  }, [editingGoal, goalDraftKey, isOnboardingGoalScreen, isStandaloneGoalScreen])
+
+  useEffect(() => {
+    if (!isOnboardingGoalScreen || !goalDraftKey) return
+    const payload = {
+      goalName,
+      goalLanguage,
+      goalDesc,
+    }
+    window.localStorage.setItem(goalDraftKey, JSON.stringify(payload))
+  }, [goalDesc, goalDraftKey, goalLanguage, goalName, isOnboardingGoalScreen])
 
   const handleNext = async () => {
     if (!goalName) {
       if (isEditing) {
+        setError("Выбери цель")
+        return
+      }
+      if (isOnboardingGoalScreen) {
         setError("Выбери цель")
         return
       }
@@ -369,6 +407,9 @@ function GoalScreen({ backTo, nextTo }: { backTo: string; nextTo: string }) {
       })
       const onboardingStep = nextTo === "about-congrats" ? "about-congrats" : "main"
       await profileAPI.updateAboutMe({ onboardingStep })
+      if (goalDraftKey) {
+        window.localStorage.removeItem(goalDraftKey)
+      }
       updateUser({ onboardingStep })
       setScreen(nextTo as any)
     } catch (e: unknown) {

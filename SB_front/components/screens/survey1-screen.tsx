@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
@@ -73,6 +73,14 @@ function hasAnswer(value: string | string[] | number | undefined) {
 
 export default function Survey1Screen() {
   const { setScreen, updateUser, state } = useApp()
+  const draftKey = useMemo(() => {
+    const userKey = typeof state.authUserId === "number" && state.authUserId > 0
+      ? `uid:${state.authUserId}`
+      : state.authEmail?.trim().toLowerCase()
+        ? `email:${state.authEmail.trim().toLowerCase()}`
+        : ""
+    return userKey ? `studybuddy_survey1_q_v1:${userKey}` : ""
+  }, [state.authEmail, state.authUserId])
   const [saving, setSaving] = useState(false)
   const [answers, setAnswers] = useState<Record<string, string | string[] | number>>(() => ({
     preferredTime: state.user.preferredTime,
@@ -86,12 +94,32 @@ export default function Survey1Screen() {
   }))
 
   const [currentQ, setCurrentQ] = useState(() => {
+    if (typeof window !== "undefined" && draftKey) {
+      const fromStorage = Number(window.localStorage.getItem(draftKey))
+      if (Number.isInteger(fromStorage) && fromStorage >= 0 && fromStorage < survey1Questions.length) {
+        return fromStorage
+      }
+    }
+
     const index = survey1Questions.findIndex((question) => {
       const value = answersFromState(state.user)[question.id]
       return !hasAnswer(value)
     })
     return index >= 0 ? index : survey1Questions.length - 1
   })
+
+  useEffect(() => {
+    if (!draftKey) return
+    const fromStorage = Number(window.localStorage.getItem(draftKey))
+    if (Number.isInteger(fromStorage) && fromStorage >= 0 && fromStorage < survey1Questions.length) {
+      setCurrentQ(fromStorage)
+    }
+  }, [draftKey])
+
+  useEffect(() => {
+    if (!draftKey) return
+    window.localStorage.setItem(draftKey, String(currentQ))
+  }, [currentQ, draftKey])
 
   const question = survey1Questions[currentQ]
   const total = survey1Questions.length
@@ -119,8 +147,12 @@ export default function Survey1Screen() {
       } as any)
 
       if (currentQ < total - 1) {
-        setCurrentQ(currentQ + 1)
+        const nextQ = currentQ + 1
+        setCurrentQ(nextQ)
       } else {
+        if (draftKey) {
+          window.localStorage.removeItem(draftKey)
+        }
         trackSurvey1Complete()
         setScreen("survey2")
       }
@@ -138,6 +170,9 @@ export default function Survey1Screen() {
     setSaving(true)
     try {
       await profileAPI.updateAboutMe({ onboardingStep: "about-congrats2" })
+      if (draftKey) {
+        window.localStorage.removeItem(draftKey)
+      }
       updateUser({ onboardingStep: "about-congrats2" })
       setScreen("about-congrats2")
     } finally {
@@ -149,13 +184,19 @@ export default function Survey1Screen() {
     if (saving) return
 
     if (question.type === "single-chip") {
-      setAnswers({ ...answers, [question.id]: option })
+      const next = { ...answers, [question.id]: option }
+      setAnswers(next)
+      updateUser({ [question.id]: option } as any)
     } else {
       const current = (answers[question.id] as string[]) || []
       if (current.includes(option)) {
-        setAnswers({ ...answers, [question.id]: current.filter((o) => o !== option) })
+        const nextValue = current.filter((o) => o !== option)
+        setAnswers({ ...answers, [question.id]: nextValue })
+        updateUser({ [question.id]: nextValue } as any)
       } else {
-        setAnswers({ ...answers, [question.id]: [...current, option] })
+        const nextValue = [...current, option]
+        setAnswers({ ...answers, [question.id]: nextValue })
+        updateUser({ [question.id]: nextValue } as any)
       }
     }
   }
@@ -163,6 +204,7 @@ export default function Survey1Screen() {
   const setRating = (value: number) => {
     if (saving) return
     setAnswers({ ...answers, [question.id]: value })
+    updateUser({ [question.id]: value } as any)
   }
 
   return (

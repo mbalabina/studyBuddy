@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { profileAPI } from "@/lib/api"
 import { ChevronLeft } from "lucide-react"
@@ -72,6 +72,14 @@ function hasAnswer(value: string | string[] | undefined) {
 
 export default function Survey2Screen() {
   const { state, setScreen, updateUser, saveProfile, savePreferences, loadCandidates } = useApp()
+  const draftKey = useMemo(() => {
+    const userKey = typeof state.authUserId === "number" && state.authUserId > 0
+      ? `uid:${state.authUserId}`
+      : state.authEmail?.trim().toLowerCase()
+        ? `email:${state.authEmail.trim().toLowerCase()}`
+        : ""
+    return userKey ? `studybuddy_survey2_q_v1:${userKey}` : ""
+  }, [state.authEmail, state.authUserId])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => ({
@@ -83,12 +91,32 @@ export default function Survey2Screen() {
   }))
 
   const [currentQ, setCurrentQ] = useState(() => {
+    if (typeof window !== "undefined" && draftKey) {
+      const fromStorage = Number(window.localStorage.getItem(draftKey))
+      if (Number.isInteger(fromStorage) && fromStorage >= 0 && fromStorage < survey2Questions.length) {
+        return fromStorage
+      }
+    }
+
     const index = survey2Questions.findIndex((question) => {
       const value = answersFromState(state.user)[question.id]
       return !hasAnswer(value)
     })
     return index >= 0 ? index : survey2Questions.length - 1
   })
+
+  useEffect(() => {
+    if (!draftKey) return
+    const fromStorage = Number(window.localStorage.getItem(draftKey))
+    if (Number.isInteger(fromStorage) && fromStorage >= 0 && fromStorage < survey2Questions.length) {
+      setCurrentQ(fromStorage)
+    }
+  }, [draftKey])
+
+  useEffect(() => {
+    if (!draftKey) return
+    window.localStorage.setItem(draftKey, String(currentQ))
+  }, [currentQ, draftKey])
 
   const question = survey2Questions[currentQ]
   const total = survey2Questions.length
@@ -146,6 +174,9 @@ export default function Survey2Screen() {
       await saveProfile({ ...finalPreferenceUpdates, onboardingStep: nextStep })
       await savePreferences(finalPreferenceUpdates)
       await loadCandidates()
+      if (draftKey) {
+        window.localStorage.removeItem(draftKey)
+      }
       trackSurvey2Complete()
       setScreen(finalScreen)
     } catch (err) {
@@ -166,6 +197,9 @@ export default function Survey2Screen() {
 
     try {
       await profileAPI.updateAboutMe({ onboardingStep: "survey1" })
+      if (draftKey) {
+        window.localStorage.removeItem(draftKey)
+      }
       updateUser({ onboardingStep: "survey1" })
       setScreen("survey1")
     } catch (err) {
@@ -180,14 +214,19 @@ export default function Survey2Screen() {
 
     if (question.type === "single-chip") {
       setAnswers({ ...answers, [question.id]: option })
+      updateUser({ [question.id]: option } as any)
     } else {
       const current = (answers[question.id] as string[]) || []
       const maxSelect = (question as { maxSelect?: number }).maxSelect
       if (current.includes(option)) {
-        setAnswers({ ...answers, [question.id]: current.filter((o) => o !== option) })
+        const nextValue = current.filter((o) => o !== option)
+        setAnswers({ ...answers, [question.id]: nextValue })
+        updateUser({ [question.id]: nextValue } as any)
       } else {
         if (maxSelect && current.length >= maxSelect) return
-        setAnswers({ ...answers, [question.id]: [...current, option] })
+        const nextValue = [...current, option]
+        setAnswers({ ...answers, [question.id]: nextValue })
+        updateUser({ [question.id]: nextValue } as any)
       }
     }
   }
