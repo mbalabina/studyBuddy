@@ -5,7 +5,7 @@ import { useApp, type Candidate } from "@/lib/app-context"
 import { favoritesAPI } from "@/lib/api"
 import { ChevronLeft, Heart, X, MapPin, GraduationCap } from "lucide-react"
 import { TabBar } from "@/components/screens/tab-bar"
-import { trackCardView, trackCardLike, trackFirstMatch, trackContactExchange } from "@/lib/yandex-metrika"
+import { trackCardView, trackCardLike, trackFirstMatch, trackMatchCreated, trackContactExchange } from "@/lib/yandex-metrika"
 
 const DEFAULT_AVATAR_SRC = "/mascot.png"
 
@@ -357,6 +357,7 @@ export function CandidateCardScreen() {
                 trackCardLike()
                 const result = await likeCurrent()
                 if (result?.matched) {
+                  trackMatchCreated()
                   trackFirstMatch()
                   setScreen("match-success")
                 }
@@ -469,6 +470,7 @@ export function CandidateDetailScreen() {
                   trackCardLike()
                   const result = await likeCurrent()
                   if (result?.matched) {
+                    trackMatchCreated()
                     trackFirstMatch()
                   }
                   setScreen(result?.matched ? "match-success" : "match-waiting")
@@ -480,6 +482,7 @@ export function CandidateDetailScreen() {
                 const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
                 const matched = Boolean(likeResult?.matched)
                 if (matched) {
+                  trackMatchCreated()
                   trackFirstMatch()
                 }
 
@@ -817,6 +820,7 @@ export function AdmirerCandidatesScreen() {
                   const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
                   const matched = Boolean(likeResult?.matched)
                   if (matched) {
+                    trackMatchCreated()
                     trackFirstMatch()
                   }
                   setState((prev) => ({

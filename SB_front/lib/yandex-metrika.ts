@@ -5,6 +5,7 @@ export const YA_GOALS = {
   SURVEY1_COMPLETE: "survey1_complete",
   SURVEY2_COMPLETE: "survey2_complete",
   FIRST_MATCH: "first_match",
+  MATCH_CREATED: "match_created",
   CARD_LIKE: "card_like",
   CARD_VIEW: "card_view",
   CONTACT_EXCHANGE: "contact_exchange",
@@ -124,6 +125,7 @@ export function trackRegistrationComplete() { trackYandexGoal(YA_GOALS.REGISTRAT
 export function trackSurvey1Complete()       { trackYandexGoal(YA_GOALS.SURVEY1_COMPLETE) }
 export function trackSurvey2Complete()       { trackYandexGoal(YA_GOALS.SURVEY2_COMPLETE) }
 export function trackFirstMatch()            { trackYandexGoal(YA_GOALS.FIRST_MATCH) }
+export function trackMatchCreated()          { trackYandexGoal(YA_GOALS.MATCH_CREATED) }
 export function trackCardLike()              { trackYandexGoal(YA_GOALS.CARD_LIKE) }
 export function trackCardView()              { trackYandexGoal(YA_GOALS.CARD_VIEW) }
 export function trackContactExchange()       { trackYandexGoal(YA_GOALS.CONTACT_EXCHANGE) }
