@@ -337,7 +337,7 @@ export function CandidateCardScreen() {
           candidate={candidate}
           onOpen={() => {
             trackCardView()
-            setState((prev) => ({ ...prev, selectedCandidate: candidate }))
+            setState((prev) => ({ ...prev, selectedCandidate: candidate, profileSourceScreen: "search-card" }))
             setScreen("search-profile")
           }}
         />
@@ -376,6 +376,7 @@ export function CandidateDetailScreen() {
   const { state, setScreen, likeCurrent, setState } = useApp()
 
   const candidate = state.selectedCandidate ?? state.candidates[state.currentCandidateIndex]
+  const backScreen = state.profileSourceScreen ?? "search-card"
   const searchCandidate = state.candidates[state.currentCandidateIndex] ?? null
   const isSearchCandidate = Boolean(searchCandidate && searchCandidate.id === candidate?.id)
   const isAlreadyLiked = Boolean(candidate?.isFavorite)
@@ -385,7 +386,7 @@ export function CandidateDetailScreen() {
     return (
       <div className="flex flex-col min-h-dvh px-6">
         <div className="flex items-center justify-between h-14 mt-2">
-          <button onClick={() => setScreen("search-card")} className="p-1" aria-label="Back">
+          <button onClick={() => setScreen(backScreen)} className="p-1" aria-label="Back">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <span className="text-base font-semibold">Профиль</span>
@@ -402,7 +403,7 @@ export function CandidateDetailScreen() {
     <div className="flex flex-col min-h-dvh animate-fade-in">
       <div className="px-6">
         <div className="flex items-center justify-between h-14 mt-2">
-          <button onClick={() => setScreen("search-card")} className="p-1" aria-label="Back">
+          <button onClick={() => setScreen(backScreen)} className="p-1" aria-label="Back">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <span className="text-base font-semibold">Профиль</span>
@@ -517,7 +518,7 @@ export function CandidateDetailScreen() {
           >
             {isAlreadyLiked ? "Уже в твоих лайках" : "Лайкнуть"}
           </button>
-          <button className="btn-outline-gray" onClick={() => setScreen("search-card")}>
+          <button className="btn-outline-gray" onClick={() => setScreen(backScreen)}>
             Назад к карточкам
           </button>
         </div>
@@ -527,7 +528,12 @@ export function CandidateDetailScreen() {
 }
 
 export function MatchWaitingScreen() {
-  const { setScreen } = useApp()
+  const { state, setScreen } = useApp()
+  const continueScreen = state.profileSourceScreen === "likes-candidates"
+    ? "likes-candidates"
+    : state.profileSourceScreen === "admirers-candidates"
+      ? "admirers-candidates"
+      : "search-card"
 
   return (
     <div className="flex flex-col min-h-dvh px-6 animate-fade-in">
@@ -539,7 +545,7 @@ export function MatchWaitingScreen() {
         <p className="text-sm text-gray-600 mb-8 max-w-[280px]">
           Если пользователь лайкнет вас в ответ, вы сможете перейти к общению.
         </p>
-        <button className="btn-green" onClick={() => setScreen("search-card")}>
+        <button className="btn-green" onClick={() => setScreen(continueScreen)}>
           Смотреть дальше
         </button>
       </div>
@@ -549,6 +555,11 @@ export function MatchWaitingScreen() {
 
 export function MatchSuccessScreen() {
   const { state, setScreen } = useApp()
+  const continueScreen = state.profileSourceScreen === "likes-candidates"
+    ? "likes-candidates"
+    : state.profileSourceScreen === "admirers-candidates"
+      ? "admirers-candidates"
+      : "search-card"
 
   const candidate =
     state.matchedCandidate ??
@@ -576,7 +587,7 @@ export function MatchSuccessScreen() {
           {candidate?.telegram ? `${contactType}: ${candidate.telegram}` : "Контакт пока не указан."}
         </p>
         <div className="w-full space-y-3">
-          <button className="btn-green" onClick={() => setScreen("search-card")}>
+          <button className="btn-green" onClick={() => setScreen(continueScreen)}>
             Продолжить поиск
           </button>
           <button className="btn-outline-gray" onClick={() => setScreen("likes")}>
@@ -682,7 +693,7 @@ export function LikesCandidatesScreen() {
         <CandidateCardView
           candidate={candidate}
           onOpen={() => {
-            setState((prev) => ({ ...prev, selectedCandidate: candidate }))
+            setState((prev) => ({ ...prev, selectedCandidate: candidate, profileSourceScreen: "likes-candidates" }))
             setScreen("search-profile")
           }}
         />
@@ -787,6 +798,7 @@ export function AdmirerCandidatesScreen() {
               ...prev,
               currentAdmirerIndex: index >= 0 ? index : prev.currentAdmirerIndex,
               selectedCandidate: candidate,
+              profileSourceScreen: "admirers-candidates",
               currentAdmirerIndexByGoal:
                 typeof activeGoalId === "number"
                   ? { ...prev.currentAdmirerIndexByGoal, [activeGoalId]: index >= 0 ? index : prev.currentAdmirerIndex }

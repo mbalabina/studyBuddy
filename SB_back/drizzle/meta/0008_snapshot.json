@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "f7c9e79a-aeda-4a76-8abf-0b8ceac2f470",
-  "prevId": "f7ff9c77-3062-493e-86fe-2bf8611f2aa1",
+  "id": "01b1118a-173f-4a41-9d0d-b804eaf0c100",
+  "prevId": "f7c9e79a-aeda-4a76-8abf-0b8ceac2f470",
   "tables": {
     "emailNotifications": {
       "name": "emailNotifications",
@@ -359,6 +359,34 @@
           "notNull": false,
           "autoincrement": false
         },
+        "importantInStudy": {
+          "name": "importantInStudy",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "importantTraits": {
+          "name": "importantTraits",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "partnerLearningStyle": {
+          "name": "partnerLearningStyle",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "onboardingStep": {
+          "name": "onboardingStep",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "bio": {
           "name": "bio",
           "type": "text",
@@ -389,7 +417,7 @@
         },
         "avatarUrl": {
           "name": "avatarUrl",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

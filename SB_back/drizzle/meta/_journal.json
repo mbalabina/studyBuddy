@@ -57,6 +57,13 @@
       "when": 1777075200000,
       "tag": "0007_password_reset_code",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1777800453831,
+      "tag": "0008_red_millenium_guard",
+      "breakpoints": true
     }
   ]
 }

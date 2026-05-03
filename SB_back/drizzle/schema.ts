@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, mediumtext, timestamp, varchar, json, boolean } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
@@ -44,7 +44,7 @@ export const profiles = mysqlTable("profiles", {
   learningFormat: varchar("learningFormat", { length: 100 }),
   communicationStyle: varchar("communicationStyle", { length: 100 }),
   // Новые поля
-  avatarUrl: text("avatarUrl"),       // base64 JPEG 256×256 (~15KB); на проде — заменить на S3 URL
+  avatarUrl: mediumtext("avatarUrl"), // base64 data URL; на проде — заменить на S3 URL
   university: varchar("university", { length: 255 }),
   program: varchar("program", { length: 255 }),
   course: varchar("course", { length: 100 }),

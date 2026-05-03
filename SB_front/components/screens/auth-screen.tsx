@@ -6,7 +6,7 @@ import { authAPI, profileAPI } from "@/lib/api"
 import { ChevronLeft, Camera } from "lucide-react"
 import { trackRegistrationComplete } from "@/lib/yandex-metrika"
 
-const MAX_AVATAR_DATA_URL_LENGTH = 62_000
+const MAX_AVATAR_DATA_URL_LENGTH = 2_000_000
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ function getPreferredOutputTypes(fileType: string): string[] {
   return ["image/webp", "image/jpeg"]
 }
 
-function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
+function resizeToBase64(file: File, maxPx = 2048): Promise<string> {
   return new Promise(async (resolve, reject) => {
     const objectUrl = URL.createObjectURL(file)
 
@@ -88,8 +88,8 @@ function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
       }
 
       const outputTypes = getPreferredOutputTypes(file.type)
-      const sizeSteps = [maxPx, 1536, 1408, 1280, 1152, 1080, 1024, 960, 896, 840, 768, 640, 512, 384]
-      const qualitySteps = [0.96, 0.92, 0.88, 0.84, 0.8, 0.76, 0.72, 0.68, 0.64, 0.6, 0.56]
+      const sizeSteps = [maxPx, 1920, 1792, 1664, 1536, 1408, 1280, 1152, 1080, 1024, 960, 896, 840, 768]
+      const qualitySteps = [0.98, 0.96, 0.94, 0.92, 0.9, 0.88, 0.86, 0.84, 0.82]
       let bestOutput = original
 
       for (const step of sizeSteps) {
@@ -117,7 +117,13 @@ function resizeToBase64(file: File, maxPx = 1600): Promise<string> {
         }
       }
 
-      resolve(bestOutput)
+      if (bestOutput.length <= MAX_AVATAR_DATA_URL_LENGTH) {
+        resolve(bestOutput)
+        return
+      }
+
+      // Не отправляем "огромный" data URL, который сервер/БД может не принять.
+      throw new Error("avatar_too_large")
     } catch (error) {
       try {
         const fallback = await readFileAsDataUrl(file)
@@ -162,7 +168,7 @@ export default function AuthScreen() {
       const base64 = await resizeToBase64(file)
       setAvatarUrl(base64)
     } catch {
-      setError("Не удалось обработать фото. Попробуй JPG, PNG или WebP")
+      setError("Фото слишком большое или не поддерживается. Попробуй JPG/PNG/WebP до 10 МБ")
     } finally {
       event.target.value = ""
     }

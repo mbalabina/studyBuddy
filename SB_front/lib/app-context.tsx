@@ -118,6 +118,7 @@ interface AppState {
   currentCandidateIndexByGoal: Record<number, number>
   currentFavoriteIndexByGoal: Record<number, number>
   currentAdmirerIndexByGoal: Record<number, number>
+  profileSourceScreen: AppScreen
 }
 
 
@@ -232,6 +233,7 @@ function createAccountScopedDefaults() {
     currentCandidateIndexByGoal: {},
     currentFavoriteIndexByGoal: {},
     currentAdmirerIndexByGoal: {},
+    profileSourceScreen: "search-card",
   }
 }
 
@@ -268,6 +270,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentCandidateIndexByGoal: {},
     currentFavoriteIndexByGoal: {},
     currentAdmirerIndexByGoal: {},
+    profileSourceScreen: "search-card",
   })
 
 
