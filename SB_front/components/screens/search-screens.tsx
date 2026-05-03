@@ -464,14 +464,22 @@ export function CandidateDetailScreen() {
                   return
                 }
                 if (isSearchCandidate) {
+                  trackCardLike()
                   const result = await likeCurrent()
+                  if (result?.matched) {
+                    trackFirstMatch()
+                  }
                   setScreen(result?.matched ? "match-success" : "match-waiting")
                   return
                 }
 
                 const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                trackCardLike()
                 const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
                 const matched = Boolean(likeResult?.matched)
+                if (matched) {
+                  trackFirstMatch()
+                }
 
                 setState((prev) => ({
                   ...prev,
@@ -792,8 +800,12 @@ export function AdmirerCandidatesScreen() {
               ? undefined
               : async () => {
                   const activeGoalId = state.user.studyGoals[state.currentGoalIndex]?.id
+                  trackCardLike()
                   const likeResult = await favoritesAPI.like(candidate.id, activeGoalId) as { matched?: boolean } | null
                   const matched = Boolean(likeResult?.matched)
+                  if (matched) {
+                    trackFirstMatch()
+                  }
                   setState((prev) => ({
                     ...prev,
                     matchedCandidate: matched ? { ...candidate, isFavorite: true } : prev.matchedCandidate,

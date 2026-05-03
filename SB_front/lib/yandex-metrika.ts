@@ -11,6 +11,19 @@ export const YA_GOALS = {
   SESSION_RETURN: "session_return",
 } as const
 
+type YmFn = (...args: unknown[]) => void
+
+type YmCommand =
+  | { method: "hit"; url: string; options: Record<string, unknown> }
+  | { method: "reachGoal"; goalId: string; params: Record<string, unknown> }
+
+const YM_RETRY_INTERVAL_MS = 500
+const YM_MAX_RETRY_ATTEMPTS = 20
+const YM_QUEUE_LIMIT = 50
+
+let ymQueue: YmCommand[] = []
+let ymFlushTimer: number | null = null
+
 export function isYandexMetrikaEnabled(): boolean {
   return Number.isFinite(YA_METRIKA_COUNTER_ID) && YA_METRIKA_COUNTER_ID > 0
 }
@@ -19,20 +32,92 @@ export function getYandexMetrikaCounterId(): number {
   return YA_METRIKA_COUNTER_ID
 }
 
-export function yandexMetrikaHit(url: string, options?: Record<string, unknown>) {
+function getYmFunction(): YmFn | null {
+  if (typeof window === "undefined") return null
+  const ym = (window as Window & { ym?: YmFn }).ym
+  return typeof ym === "function" ? ym : null
+}
+
+function executeYmCommand(ym: YmFn, command: YmCommand) {
+  if (command.method === "hit") {
+    ym(YA_METRIKA_COUNTER_ID, "hit", command.url, command.options)
+    return
+  }
+
+  ym(YA_METRIKA_COUNTER_ID, "reachGoal", command.goalId, command.params)
+}
+
+function flushYmQueueIfPossible(): boolean {
+  const ym = getYmFunction()
+  if (!ym) return false
+
+  while (ymQueue.length > 0) {
+    const command = ymQueue.shift()
+    if (!command) continue
+    executeYmCommand(ym, command)
+  }
+
+  return true
+}
+
+function stopYmFlushTimer() {
+  if (typeof window === "undefined") return
+  if (ymFlushTimer === null) return
+  window.clearInterval(ymFlushTimer)
+  ymFlushTimer = null
+}
+
+function startYmFlushTimer() {
+  if (typeof window === "undefined") return
+  if (ymFlushTimer !== null) return
+
+  let attempts = 0
+  ymFlushTimer = window.setInterval(() => {
+    attempts += 1
+    const flushed = flushYmQueueIfPossible()
+    if (flushed || attempts >= YM_MAX_RETRY_ATTEMPTS) {
+      stopYmFlushTimer()
+      if (!flushed) {
+        ymQueue = []
+      }
+    }
+  }, YM_RETRY_INTERVAL_MS)
+}
+
+function dispatchYmCommand(command: YmCommand) {
   if (!isYandexMetrikaEnabled()) return
   if (typeof window === "undefined") return
-  const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
-  if (typeof ym !== "function") return
-  ym(YA_METRIKA_COUNTER_ID, "hit", url, options ?? {})
+
+  const ym = getYmFunction()
+  if (ym) {
+    executeYmCommand(ym, command)
+    return
+  }
+
+  ymQueue.push(command)
+  if (ymQueue.length > YM_QUEUE_LIMIT) {
+    ymQueue = ymQueue.slice(-YM_QUEUE_LIMIT)
+  }
+  startYmFlushTimer()
+}
+
+export function yandexMetrikaHit(url: string, options?: Record<string, unknown>) {
+  dispatchYmCommand({
+    method: "hit",
+    url,
+    options: options ?? {},
+  })
 }
 
 export function trackYandexGoal(goalId: string, params?: Record<string, unknown>) {
-  if (!isYandexMetrikaEnabled()) return
-  if (typeof window === "undefined") return
-  const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
-  if (typeof ym !== "function") return
-  ym(YA_METRIKA_COUNTER_ID, "reachGoal", goalId, params)
+  dispatchYmCommand({
+    method: "reachGoal",
+    goalId,
+    params: {
+      event_id: goalId,
+      ...params,
+    },
+  })
 }
 
 export function trackRegistrationComplete() { trackYandexGoal(YA_GOALS.REGISTRATION_COMPLETE) }
