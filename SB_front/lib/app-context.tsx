@@ -128,6 +128,8 @@ interface AppContextType {
   updateUser: (updates: Partial<UserProfile>) => void
   addStudyGoal: (goal: Omit<StudyGoal, "id">) => Promise<void>
   setActiveGoal: (goalId: number) => Promise<void>
+  updateStudyGoal: (goalId: number, goal: Omit<StudyGoal, "id">) => Promise<void>
+  completeStudyGoal: (goalId: number) => Promise<void>
   likeCurrent: () => Promise<{ matched: boolean; candidate: Candidate } | null>
   rejectCurrent: () => void
   nextCandidate: () => void
@@ -716,6 +718,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ])
   }, [loadAdmirerCandidatesForSession, loadCandidatesForSession, loadFavoriteCandidatesForSession, setStateForSession])
 
+  const updateStudyGoal = useCallback(async (goalId: number, goal: Omit<StudyGoal, "id">) => {
+    await goalsAPI.update({
+      goalId,
+      name: goal.name,
+      description: goal.description,
+      language: goal.language,
+    })
+
+    const sessionVersion = sessionVersionRef.current
+    const activeGoalId = await loadProfileForSession(sessionVersion)
+    await Promise.all([
+      loadCandidatesForSession(sessionVersion, activeGoalId),
+      loadFavoriteCandidatesForSession(sessionVersion, activeGoalId),
+      loadAdmirerCandidatesForSession(sessionVersion, activeGoalId),
+    ])
+  }, [
+    loadAdmirerCandidatesForSession,
+    loadCandidatesForSession,
+    loadFavoriteCandidatesForSession,
+    loadProfileForSession,
+  ])
+
+  const completeStudyGoal = useCallback(async (goalId: number) => {
+    await goalsAPI.complete(goalId)
+
+    const sessionVersion = sessionVersionRef.current
+    const activeGoalId = await loadProfileForSession(sessionVersion)
+    await Promise.all([
+      loadCandidatesForSession(sessionVersion, activeGoalId),
+      loadFavoriteCandidatesForSession(sessionVersion, activeGoalId),
+      loadAdmirerCandidatesForSession(sessionVersion, activeGoalId),
+    ])
+  }, [
+    loadAdmirerCandidatesForSession,
+    loadCandidatesForSession,
+    loadFavoriteCandidatesForSession,
+    loadProfileForSession,
+  ])
+
   const addStudyGoal = useCallback(async (goal: Omit<StudyGoal, "id">) => {
     try {
       const created = await goalsAPI.create({
@@ -1011,6 +1052,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateUser,
         addStudyGoal,
         setActiveGoal,
+        updateStudyGoal,
+        completeStudyGoal,
         likeCurrent,
         rejectCurrent,
         nextCandidate,

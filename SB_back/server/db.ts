@@ -463,6 +463,123 @@ export async function setActiveUserGoal(userId: number, goalId: number): Promise
   }
 }
 
+export async function updateUserGoal(
+  userId: number,
+  goalId: number,
+  data: {
+    name: string;
+    description?: string | null;
+    language?: string | null;
+    makeActive?: boolean;
+  },
+): Promise<UserGoalWithLanguage | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot update goal: database not available");
+    return null;
+  }
+
+  const currentGoal = await getUserGoalById(goalId);
+  if (!currentGoal || currentGoal.userId !== userId) {
+    return null;
+  }
+
+  const name = data.name.trim();
+  if (!name) {
+    throw new Error("Goal name cannot be empty");
+  }
+
+  const shouldActivate = data.makeActive ?? currentGoal.isActive;
+
+  try {
+    if (shouldActivate) {
+      await db
+        .update(userStudyGoals)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(userStudyGoals.userId, userId));
+    }
+
+    await db
+      .update(userStudyGoals)
+      .set({
+        name,
+        description: encodeGoalDescription({
+          goalName: name,
+          description: data.description,
+          language: data.language,
+        }),
+        isActive: shouldActivate,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(userStudyGoals.userId, userId), eq(userStudyGoals.id, goalId)));
+
+    const updatedGoal = await getUserGoalById(goalId);
+    if (updatedGoal?.isActive) {
+      await upsertProfile(userId, {
+        studyGoal: updatedGoal.name,
+        bio: updatedGoal.description ?? undefined,
+      });
+    }
+
+    return updatedGoal;
+  } catch (error) {
+    console.error("[Database] Failed to update goal:", error);
+    throw error;
+  }
+}
+
+export async function completeUserGoal(
+  userId: number,
+  goalId: number,
+): Promise<{ removedGoalId: number; activeGoal: UserGoalWithLanguage | null } | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot complete goal: database not available");
+    return null;
+  }
+
+  const goal = await getUserGoalById(goalId);
+  if (!goal || goal.userId !== userId) {
+    return null;
+  }
+
+  try {
+    await db.delete(favorites).where(eq(favorites.goalId, goalId));
+    await db
+      .delete(userStudyGoals)
+      .where(and(eq(userStudyGoals.userId, userId), eq(userStudyGoals.id, goalId)));
+
+    const remainingGoals = await getUserGoals(userId);
+    let activeGoal = remainingGoals.find((item) => item.isActive) ?? null;
+
+    if (!activeGoal && remainingGoals.length > 0) {
+      const fallbackGoal = remainingGoals[0];
+      if (fallbackGoal) {
+        activeGoal = await setActiveUserGoal(userId, fallbackGoal.id);
+      }
+    }
+
+    if (activeGoal) {
+      await upsertProfile(userId, {
+        studyGoal: activeGoal.name,
+        bio: activeGoal.description ?? undefined,
+      });
+    } else {
+      await upsertProfile(userId, {
+        studyGoal: null,
+      });
+    }
+
+    return {
+      removedGoalId: goalId,
+      activeGoal: activeGoal ?? null,
+    };
+  } catch (error) {
+    console.error("[Database] Failed to complete goal:", error);
+    throw error;
+  }
+}
+
 export async function upsertUserGoalByName(
   userId: number,
   name: string,

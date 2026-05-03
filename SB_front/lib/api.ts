@@ -162,6 +162,10 @@ export const goalsAPI = {
     callTRPC({ method: "mutation", procedure: "goals.create", input: data }),
   setActive: (goalId: number) =>
     callTRPC({ method: "mutation", procedure: "goals.setActive", input: { goalId } }),
+  update: (data: { goalId: number; name: string; description?: string; language?: string; makeActive?: boolean }) =>
+    callTRPC({ method: "mutation", procedure: "goals.update", input: data }),
+  complete: (goalId: number) =>
+    callTRPC({ method: "mutation", procedure: "goals.complete", input: { goalId } }),
 }
 
 export const matchingAPI = {

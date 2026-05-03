@@ -922,6 +922,42 @@ export const appRouter = router({
 
         return goal;
       }),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          goalId: z.number().int().positive(),
+          name: z.string().trim().min(1),
+          description: z.string().optional(),
+          language: z.string().optional(),
+          makeActive: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const goal = await db.updateUserGoal(ctx.user!.userId, input.goalId, {
+          name: input.name,
+          description: input.description,
+          language: input.language,
+          makeActive: input.makeActive,
+        });
+
+        if (!goal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+        }
+
+        return goal;
+      }),
+
+    complete: protectedProcedure
+      .input(z.object({ goalId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const result = await db.completeUserGoal(ctx.user!.userId, input.goalId);
+        if (!result) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+        }
+
+        return result;
+      }),
   }),
 
   search: router({
