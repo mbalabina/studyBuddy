@@ -389,20 +389,9 @@ function isAnswered(value: string | string[] | number | null | undefined) {
 }
 
 function inferOnboardingScreen(user: UserProfile): AppScreen {
-  const step = (user.onboardingStep || "").trim() as AppScreen
-  if (onboardingScreens.has(step)) return step
-
-  if (!user.firstName.trim() || !user.lastName.trim() || !user.city.trim()) {
-    return "about-step1"
-  }
-
-  if (!user.messengerHandle.trim()) {
-    return "about-step3"
-  }
-
-  if (user.studyGoals.length === 0) {
-    return "about-goal"
-  }
+  const hasBaseProfile = Boolean(user.firstName.trim() && user.lastName.trim() && user.city.trim())
+  const hasContacts = Boolean(user.messengerHandle.trim())
+  const hasGoal = user.studyGoals.length > 0
 
   const survey1Complete =
     isAnswered(user.preferredTime) &&
@@ -427,6 +416,27 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
 
   if (!survey2Complete) {
     return "survey2"
+  }
+
+  // If onboarding data is fully complete, stale onboardingStep from old sessions
+  // must not force returning into surveys.
+  if (hasBaseProfile && hasContacts && hasGoal && survey1Complete && survey2Complete) {
+    return "main"
+  }
+
+  const step = (user.onboardingStep || "").trim() as AppScreen
+  if (onboardingScreens.has(step)) return step
+
+  if (!hasBaseProfile) {
+    return "about-step1"
+  }
+
+  if (!hasContacts) {
+    return "about-step3"
+  }
+
+  if (!hasGoal) {
+    return "about-goal"
   }
 
   return "main"
