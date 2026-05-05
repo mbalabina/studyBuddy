@@ -1054,11 +1054,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const activeGoalId = await loadProfileForSession(sessionVersion)
-      if (!isSessionCurrent(sessionVersion)) {
-        return
-      }
-
       setStateForSession(sessionVersion, (prev) => {
         const resumeScreen = inferOnboardingScreen(prev.user)
 
