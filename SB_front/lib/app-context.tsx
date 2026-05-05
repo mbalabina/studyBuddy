@@ -412,7 +412,16 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
   const hasBaseProfile = Boolean(user.firstName.trim() && user.lastName.trim() && user.city.trim())
   const hasGoal = user.studyGoals.length > 0
 
-  // НЕ требуем messengerHandle, чтобы старых пользователей не возвращать в анкету
+  console.log("ONBOARDING RESUME", {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    city: user.city,
+    messengerHandle: user.messengerHandle,
+    goalsCount: user.studyGoals.length,
+    hasBaseProfile,
+    hasGoal,
+  })
+
   const minimalOnboardingComplete = hasBaseProfile && hasGoal
 
   if (minimalOnboardingComplete) {
