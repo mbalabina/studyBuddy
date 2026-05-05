@@ -804,22 +804,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               ]
             : []
 
-        const goals: StudyGoal[] =
-          goalsFromApi.length > 0
-            ? goalsFromApi
-            : profile?.studyGoal
-            ? [
-                {
-                  id: 1,
-                  name: profile.studyGoal,
-                  description: profile.bio ?? "",
-                  language: undefined,
-                  startDate: "",
-                  isActive: true,
-                },
-              ]
-            : []
-
         const activeGoalIndexFromApi = goals.findIndex((goal) => goal.isActive)
         const activeGoalIndex = activeGoalIndexFromApi >= 0 ? activeGoalIndexFromApi : 0
 
