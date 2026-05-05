@@ -409,24 +409,11 @@ function isAnswered(value: string | string[] | number | null | undefined) {
 // ===== ОНБОРДИНГ =====
 
 function inferOnboardingScreen(user: UserProfile): AppScreen {
-  const hasBaseProfile = Boolean(user.firstName.trim() && user.lastName.trim() && user.city.trim())
-  const hasGoal = user.studyGoals.length > 0
-
-  console.log("ONBOARDING RESUME", {
-    firstName: user.firstName,
-    lastName: user.lastName,
-    city: user.city,
-    messengerHandle: user.messengerHandle,
-    goalsCount: user.studyGoals.length,
-    hasBaseProfile,
-    hasGoal,
-  })
-
-  const minimalOnboardingComplete = hasBaseProfile && hasGoal
-
-  if (minimalOnboardingComplete) {
-    return "main"
-  }
+  const hasBaseProfile = Boolean(
+    user.firstName.trim() &&
+      user.lastName.trim() &&
+      user.city.trim()
+  )
 
   const survey1Complete =
     isAnswered(user.preferredTime) &&
@@ -445,6 +432,42 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     isAnswered(user.importantTraits) &&
     isAnswered(user.partnerLearningStyle)
 
+  const isQuestionnaireComplete = survey1Complete && survey2Complete
+
+  console.log("ONBOARDING RESUME", {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    city: user.city,
+    messengerHandle: user.messengerHandle,
+    goalsCount: user.studyGoals.length,
+    hasBaseProfile,
+    survey1Complete,
+    survey2Complete,
+    isQuestionnaireComplete,
+  })
+
+  const step = (user.onboardingStep || "").trim() as AppScreen
+
+  // 1. Если есть сохранённый шаг онбординга и он один из "about-*" или "survey*",
+  // то ВСЕГДА возвращаем именно его — это "куда пользователь дошёл"
+  if (onboardingScreens.has(step)) {
+    return step
+  }
+
+  // 2. Шаг не сохранён (старые пользователи).
+  // Здесь уже можно аккуратно восстановить состояние по полям.
+
+  // 2.1. Если профиль и анкета полностью заполнены — ведём на main
+  if (hasBaseProfile && isQuestionnaireComplete) {
+    return "main"
+  }
+
+  // 2.2. Если профиль не заполнен — начинаем с первого шага профиля
+  if (!hasBaseProfile) {
+    return "about-step1"
+  }
+
+  // 2.3. Профиль есть, анкета не заполнена — начнём с первой части анкеты
   if (!survey1Complete) {
     return "survey1"
   }
@@ -453,19 +476,7 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
     return "survey2"
   }
 
-  const step = (user.onboardingStep || "").trim() as AppScreen
-  if (onboardingScreens.has(step)) {
-    return step
-  }
-
-  if (!hasBaseProfile) {
-    return "about-step1"
-  }
-
-  if (!hasGoal) {
-    return "about-goal"
-  }
-
+  // 2.4. На всякий случай, если ничего не подошло — main
   return "main"
 }
 
