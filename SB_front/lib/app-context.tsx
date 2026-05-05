@@ -1030,6 +1030,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, user: nextUser }
     })
   }, [])
+  
+  const addStudyGoal = useCallback(async (goal: Omit<StudyGoal, "id">) => {
+  const created = (await goalsAPI.create({
+    name: goal.name,
+    description: goal.description,
+    language: goal.language,
+    makeActive: true,
+  })) as StudyGoal
+
+  setState((prev) => ({
+    ...prev,
+    user: {
+      ...prev.user,
+      studyGoals: [...prev.user.studyGoals, created],
+    },
+  }))
+}, [])
 
   // ===== ГОЛЫ / MATСHING / ЛАЙКИ =====
   // (оставляем как в твоём исходном файле, логика не менялась — см. свой paste.txt; тут уже и так очень длинный блок)
@@ -1124,9 +1141,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         authUserId: (user as { id?: number })?.id ?? null,
         authEmail: (user as { email?: string })?.email ?? email,
         apiError: null,
+        screen: "splash",
       }))
+
+      await loadProfileForSession(sessionVersion)
+      if (!isSessionCurrent(sessionVersion)) return
+
+      setStateForSession(sessionVersion, (prev) => {
+        const resumeScreen = inferOnboardingScreen(prev.user)
+        if (isOnboardingScreen(resumeScreen)) {
+          writeOnboardingDraft(
+            (user as { id?: number })?.id ?? null,
+            (user as { email?: string })?.email ?? email,
+            { onboardingStep: resumeScreen }
+          )
+        }
+        return { ...prev, screen: resumeScreen }
+      })
     },
-    [beginSessionTransition, isSessionCurrent, setStateForSession]
+    [
+      beginSessionTransition,
+      isSessionCurrent,
+      loadProfileForSession,
+      setStateForSession,
+    ]
   )
 
   const logout = useCallback(
@@ -1221,7 +1259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         openGoalCreator,
         openGoalEditor,
         updateUser,
-        addStudyGoal: async () => {}, // здесь вставь свою реализацию из файла
+        addStudyGoal,
         setActiveGoal: async () => {}, // и т.д. для goals/likeCurrent/rejectCurrent/nextCandidate
         updateStudyGoal: async () => {},
         completeStudyGoal: async () => {},
