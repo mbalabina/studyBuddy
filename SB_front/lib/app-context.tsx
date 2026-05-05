@@ -915,17 +915,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const activeGoalId = await loadProfileForSession(sessionVersion)
           if (!isSessionCurrent(sessionVersion)) return
 
-          const resumeScreen = inferOnboardingScreen(stateRef.current.user)
-          if (isOnboardingScreen(resumeScreen)) {
-            writeOnboardingDraft(user.id, user.email, { onboardingStep: resumeScreen })
-          } else {
-            clearOnboardingDraft(user.id, user.email)
-          }
+          setStateForSession(sessionVersion, (prev) => {
+            const resumeScreen = inferOnboardingScreen(prev.user)
 
-          setStateForSession(sessionVersion, (prev) => ({
-            ...prev,
-            screen: resumeScreen,
-          }))
+            if (isOnboardingScreen(resumeScreen)) {
+              writeOnboardingDraft(user.id, user.email, { onboardingStep: resumeScreen })
+            } else {
+              clearOnboardingDraft(user.id, user.email)
+            }
+
+            return {
+              ...prev,
+              screen: resumeScreen,
+            }
+          })
 
           trackSessionReturn()
 
@@ -1051,21 +1054,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const resumeScreen = inferOnboardingScreen(stateRef.current.user)
-      if (isOnboardingScreen(resumeScreen)) {
-        writeOnboardingDraft(
-          (user as { id?: number })?.id ?? null,
-          (user as { email?: string })?.email ?? email,
-          { onboardingStep: resumeScreen }
-        )
-      } else {
-        clearOnboardingDraft((user as { id?: number })?.id ?? null, (user as { email?: string })?.email ?? email)
+      const activeGoalId = await loadProfileForSession(sessionVersion)
+      if (!isSessionCurrent(sessionVersion)) {
+        return
       }
 
-      setStateForSession(sessionVersion, (prev) => ({
-        ...prev,
-        screen: resumeScreen,
-      }))
+      setStateForSession(sessionVersion, (prev) => {
+        const resumeScreen = inferOnboardingScreen(prev.user)
+
+        if (isOnboardingScreen(resumeScreen)) {
+          writeOnboardingDraft(
+            (user as { id?: number })?.id ?? null,
+            (user as { email?: string })?.email ?? email,
+            { onboardingStep: resumeScreen }
+          )
+        } else {
+          clearOnboardingDraft(
+            (user as { id?: number })?.id ?? null,
+            (user as { email?: string })?.email ?? email
+          )
+        }
+
+        return {
+          ...prev,
+          screen: resumeScreen,
+        }
+      })
 
       await Promise.all([
         loadCandidatesForSession(sessionVersion, activeGoalId),
