@@ -413,12 +413,25 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
   const hasContacts = Boolean(user.messengerHandle.trim())
   const hasGoal = user.studyGoals.length > 0
 
+  console.log("ONBOARDING RESUME", {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    city: user.city,
+    messengerHandle: user.messengerHandle,
+    goalsCount: user.studyGoals.length,
+    hasBaseProfile,
+    hasContacts,
+    hasGoal,
+  })
+
   // Минимальный критерий: профиль + контакты + хотя бы одна цель.
   const minimalOnboardingComplete = hasBaseProfile && hasContacts && hasGoal
 
   if (minimalOnboardingComplete) {
     return "main"
   }
+  ...
+}
 
   const survey1Complete =
     isAnswered(user.preferredTime) &&
