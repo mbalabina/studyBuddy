@@ -410,28 +410,14 @@ function isAnswered(value: string | string[] | number | null | undefined) {
 
 function inferOnboardingScreen(user: UserProfile): AppScreen {
   const hasBaseProfile = Boolean(user.firstName.trim() && user.lastName.trim() && user.city.trim())
-  const hasContacts = Boolean(user.messengerHandle.trim())
   const hasGoal = user.studyGoals.length > 0
 
-  console.log("ONBOARDING RESUME", {
-    firstName: user.firstName,
-    lastName: user.lastName,
-    city: user.city,
-    messengerHandle: user.messengerHandle,
-    goalsCount: user.studyGoals.length,
-    hasBaseProfile,
-    hasContacts,
-    hasGoal,
-  })
-
-  // Минимальный критерий: профиль + контакты + хотя бы одна цель.
-  const minimalOnboardingComplete = hasBaseProfile && hasContacts && hasGoal
+  // НЕ требуем messengerHandle, чтобы старых пользователей не возвращать в анкету
+  const minimalOnboardingComplete = hasBaseProfile && hasGoal
 
   if (minimalOnboardingComplete) {
     return "main"
   }
-  ...
-}
 
   const survey1Complete =
     isAnswered(user.preferredTime) &&
@@ -465,10 +451,6 @@ function inferOnboardingScreen(user: UserProfile): AppScreen {
 
   if (!hasBaseProfile) {
     return "about-step1"
-  }
-
-  if (!hasContacts) {
-    return "about-step3"
   }
 
   if (!hasGoal) {
@@ -804,6 +786,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 startDate: goal.createdAt ?? "",
                 isActive: Boolean(goal.isActive),
               }))
+            : []
+
+        const goals: StudyGoal[] =
+          goalsFromApi.length > 0
+            ? goalsFromApi
+            : profile?.studyGoal
+            ? [
+                {
+                  id: 1,
+                  name: profile.studyGoal,
+                  description: profile.bio ?? "",
+                  language: undefined,
+                  startDate: "",
+                  isActive: true,
+                },
+              ]
             : []
 
         const goals: StudyGoal[] =
